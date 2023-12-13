@@ -1,0 +1,7 @@
+neo2
+cmake_install.cmake
+*.bin
+Makefile
+CMakeCache.txt
+CMakeFiles/
+
