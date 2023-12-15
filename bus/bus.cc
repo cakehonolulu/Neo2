@@ -1,15 +1,15 @@
-#include <memory/memory.hh>
+#include <bus/bus.hh>
 #include <neo2.hh>
 #include <iostream>
 #include <fstream>
 
-Memory :: Memory()
+Bus :: Bus()
 {
     // BIOS (4MB)
     memory_map.resize(0x00400000, 0);  // 0x00200000 = 2MB
 }
 
-void Memory :: load_bios(const std::string& bios_path)
+void Bus :: load_bios(const std::string& bios_path)
 {
     std::ifstream bios_file(bios_path, std::ios::binary);
 
@@ -37,7 +37,7 @@ void Memory :: load_bios(const std::string& bios_path)
     bios_file.close();
 }
 
-std::uint8_t Memory::read(uint32_t address)
+std::uint8_t Bus::read(uint32_t address)
 {
     if (address < memory_map.size())
     {

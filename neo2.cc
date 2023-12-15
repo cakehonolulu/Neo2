@@ -1,4 +1,4 @@
-#include <memory/memory.hh>
+#include <bus/bus.hh>
 #include <ee/ee.hh>
 #include <iostream>
 #include <fstream>
@@ -35,11 +35,11 @@ int main(int argc, char **argv)
         }
     }
 
-    Memory memory;
-    memory.load_bios(bios_file);
+    Bus bus;
+    bus.load_bios(bios_file);
 
     // Initialize the EE
-    EE ee(&memory);
+    EE ee(&bus);
     ee.run();
 
     return 0;

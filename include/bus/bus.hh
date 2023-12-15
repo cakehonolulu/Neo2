@@ -4,11 +4,11 @@
 #include <vector>
 #include <cstdint>
 
-class Memory {
+class Bus {
 
 public:
 
-    Memory();
+    Bus();
 
     std::vector<std::uint8_t> memory_map;
 
