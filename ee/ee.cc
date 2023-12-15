@@ -10,10 +10,10 @@
     using fmt::format;
 #endif
 
-EE::EE(Memory *memory_)
+EE::EE(Bus *bus_)
 {
     pc = 0x00000000;
-    memory = memory_;
+    bus = bus_;
 }
 
 EE::~EE() {
@@ -32,7 +32,7 @@ void EE::run()
 
 uint32_t EE::fetchOpcode()
 {
-    uint32_t opcode = (memory->read(pc + 1) << 8) | memory->read(pc);
+    uint32_t opcode = (bus->read(pc + 1) << 8) | bus->read(pc);
     return opcode;
 }
 
