@@ -1,19 +1,20 @@
 #include <bus/bus.hh>
-#include <neo2.hh>
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <neo2.hh>
 
-Bus :: Bus()
+Bus::Bus()
 {
     // BIOS (4MB)
-    memory_map.resize(0x00400000, 0);  // 0x00200000 = 2MB
+    memory_map.resize(0x00400000, 0); // 0x00200000 = 2MB
 }
 
-void Bus :: load_bios(const std::string& bios_path)
+void Bus::load_bios(const std::string &bios_path)
 {
     std::ifstream bios_file(bios_path, std::ios::binary);
 
-    if (!bios_file.is_open()) {
+    if (!bios_file.is_open())
+    {
         std::cerr << BOLDRED << "Failed to open the BIOS file: " << bios_path << RESET << "\n";
         return;
     }

@@ -1,18 +1,17 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
-class Bus {
+class Bus
+{
 
-public:
-
+  public:
     Bus();
 
     std::vector<std::uint8_t> memory_map;
 
-    void load_bios(const std::string& bios_path);
+    void load_bios(const std::string &bios_path);
     std::uint8_t read(uint32_t address);
-    
 };

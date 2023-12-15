@@ -1,13 +1,13 @@
 #include <ee/ee.hh>
-#include <neo2.hh>
 #include <iostream>
+#include <neo2.hh>
 
 #if __has_include(<format>)
-    #include <format>
-    using std::format;
+#include <format>
+using std::format;
 #else
-    #include <fmt/format.h>
-    using fmt::format;
+#include <fmt/format.h>
+using fmt::format;
 #endif
 
 EE::EE(Bus *bus_)
@@ -16,12 +16,14 @@ EE::EE(Bus *bus_)
     bus = bus_;
 }
 
-EE::~EE() {
+EE::~EE()
+{
 }
 
 void EE::run()
 {
-    while (true) {
+    while (true)
+    {
         uint32_t opcode = fetchOpcode();
 
         parseOpcode(opcode);
@@ -42,9 +44,10 @@ void EE::parseOpcode(uint32_t opcode)
 
     switch (function)
     {
-        default:
-            std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0b" << format("{:04b}", function) << ")" << RESET << "\n";
-            exit(1);
-            break;
+    default:
+        std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0b"
+                  << format("{:04b}", function) << ")" << RESET << "\n";
+        exit(1);
+        break;
     }
 }

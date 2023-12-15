@@ -1,11 +1,12 @@
 #pragma once
 
-#include <memory/memory.hh>
 #include <cstdint>
+#include <memory/memory.hh>
 
-class EE {
+class EE
+{
 
-public:
+  public:
     EE(Memory *memory_);
     ~EE();
 
