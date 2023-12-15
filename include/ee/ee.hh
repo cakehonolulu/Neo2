@@ -1,18 +1,18 @@
 #pragma once
 
+#include <bus/bus.hh>
 #include <cstdint>
-#include <memory/memory.hh>
 
 class EE
 {
 
   public:
-    EE(Memory *memory_);
+    EE(Bus *bus_);
     ~EE();
 
     void run();
 
-    Memory *memory;
+    Bus *bus;
     std::uint32_t pc;
 
     std::uint32_t fetchOpcode();
