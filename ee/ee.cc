@@ -12,7 +12,7 @@ using fmt::format;
 
 EE::EE(Bus *bus_)
 {
-    pc = 0x00000000;
+    pc = 0xBFC00000;
     bus = bus_;
 }
 
@@ -34,7 +34,7 @@ void EE::run()
 
 uint32_t EE::fetchOpcode()
 {
-    uint32_t opcode = (bus->read(pc + 1) << 8) | bus->read(pc);
+    uint32_t opcode = bus->read32(pc);
     return opcode;
 }
 
@@ -45,8 +45,8 @@ void EE::parseOpcode(uint32_t opcode)
     switch (function)
     {
     default:
-        std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0b"
-                  << format("{:04b}", function) << ")" << RESET << "\n";
+        std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0x"
+                  << format("{:02X}", function) << ")" << RESET << "\n";
         exit(1);
         break;
     }

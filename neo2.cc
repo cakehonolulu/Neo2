@@ -1,7 +1,7 @@
 #include <bus/bus.hh>
 #include <ee/ee.hh>
-#include <fstream>
 #include <iostream>
+#include <neo2.hh>
 #include <string>
 #include <vector>
 
@@ -28,13 +28,16 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    std::cerr << "No bios file provided\n";
+                    std::cerr << "No bios file provided!\n";
                     return 1;
                 }
             }
         }
     }
 
+    std::cout << MAGENTA << "Neo2 - A simple, PlayStation 2 Emulator" << RESET "\n";
+
+    // Initialize the Bus Interconnector
     Bus bus;
     bus.load_bios(bios_file);
 
