@@ -17,6 +17,5 @@ class Bus
     uintptr_t *address_space_w;
 
     void load_bios(const std::string &bios_path);
-    std::uint8_t read(uint32_t address);
     std::uint32_t read32(uint32_t address);
 };

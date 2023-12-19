@@ -24,21 +24,21 @@ void EE::run()
 {
     while (true)
     {
-        uint32_t opcode = fetchOpcode();
+        uint32_t opcode = fetch_ee_opcode();
 
-        parseOpcode(opcode);
+        parse_ee_opcode(opcode);
 
         pc += 2;
     }
 }
 
-uint32_t EE::fetchOpcode()
+uint32_t EE::fetch_ee_opcode()
 {
     uint32_t opcode = bus->read32(pc);
     return opcode;
 }
 
-void EE::parseOpcode(uint32_t opcode)
+void EE::parse_ee_opcode(uint32_t opcode)
 {
     uint8_t function = (opcode >> 26) & 0x3F;
 

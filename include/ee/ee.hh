@@ -15,6 +15,6 @@ class EE
     Bus *bus;
     std::uint32_t pc;
 
-    std::uint32_t fetchOpcode();
-    void parseOpcode(std::uint32_t opcode);
+    std::uint32_t fetch_ee_opcode();
+    void parse_ee_opcode(std::uint32_t opcode);
 };

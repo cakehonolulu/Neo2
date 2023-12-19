@@ -72,7 +72,3 @@ std::uint32_t Bus::read32(std::uint32_t address)
         exit(1);
     }
 }
-
-std::uint8_t Bus::read(uint32_t address)
-{
-}
