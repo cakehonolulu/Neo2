@@ -42,7 +42,7 @@ int main(int argc, char **argv)
     bus.load_bios(bios_file);
 
     // Initialize the EE
-    EE ee(&bus);
+    EE ee(&bus, EmulationMode::Interpreter);
     ee.run();
 
     return 0;
