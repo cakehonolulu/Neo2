@@ -14,11 +14,11 @@ enum class EmulationMode
 class EE
 {
   private:
-    std::function<void()> ee_step;
-
   public:
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
+
+    std::function<void()> ee_step;
 
     void run();
 
