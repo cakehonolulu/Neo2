@@ -26,6 +26,6 @@ class EE
     std::uint32_t pc;
 
     void ee_step_interpreter();
-    std::uint32_t fetch_ee_opcode();
+    std::uint32_t inline fetch_ee_opcode();
     void parse_ee_opcode(std::uint32_t opcode);
 };

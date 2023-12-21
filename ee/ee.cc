@@ -53,10 +53,9 @@ void EE::ee_step_interpreter()
     pc += 2;
 }
 
-uint32_t EE::fetch_ee_opcode()
+uint32_t inline EE::fetch_ee_opcode()
 {
-    uint32_t opcode = bus->read32(pc);
-    return opcode;
+    return bus->read32(pc);
 }
 
 void EE::parse_ee_opcode(uint32_t opcode)
