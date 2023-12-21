@@ -12,8 +12,9 @@ using fmt::format;
 void ee_step_interpreter(EE *ee)
 {
     std::uint32_t opcode = fetch_ee_opcode(ee);
+    ee->pc = ee->next_pc;
+    ee->next_pc += 4;
     parse_ee_opcode(ee, opcode);
-    ee->pc += 2;
 }
 
 std::uint32_t inline fetch_ee_opcode(EE *ee)
