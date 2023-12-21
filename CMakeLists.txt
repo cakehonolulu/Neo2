@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 project(Neo2)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_C_FLAGS_DEBUG "-Wall -Wextra -g")
 set(CMAKE_C_FLAGS_MINSIZEREL "-Wall -Wextra -O0")
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-Wall -Wextra -g -O2")
