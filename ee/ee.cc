@@ -1,3 +1,4 @@
+#include <cstring>
 #include <ee/ee.hh>
 #include <iostream>
 #include <neo2.hh>
@@ -12,7 +13,6 @@ using fmt::format;
 
 EE::EE(Bus *bus_, EmulationMode mode)
 {
-    pc = 0xBFC00000;
     bus = bus_;
 
     switch (mode)
@@ -30,6 +30,10 @@ EE::EE(Bus *bus_, EmulationMode mode)
         exit(1);
         break;
     }
+
+    std::memset(registers, 0, sizeof(registers));
+    pc = 0xBFC00000;
+    next_pc = pc + 4;
 }
 
 EE::~EE()
