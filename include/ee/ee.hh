@@ -2,6 +2,7 @@
 
 #include <bus/bus.hh>
 #include <cstdint>
+#include <ee/ee_interpreter.hh>
 #include <functional>
 
 enum class EmulationMode
@@ -24,8 +25,4 @@ class EE
 
     Bus *bus;
     std::uint32_t pc;
-
-    void ee_step_interpreter();
-    std::uint32_t inline fetch_ee_opcode();
-    void parse_ee_opcode(std::uint32_t opcode);
 };
