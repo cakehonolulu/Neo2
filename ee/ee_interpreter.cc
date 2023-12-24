@@ -9,29 +9,21 @@ using std::format;
 using fmt::format;
 #endif
 
+void ee_interpreter_setup(EE *ee)
+{
+    std::cout << CYAN << "[EE] Populating opcode table..." << RESET "\n";
+    ee->opcodes[0x10] = ee_interp_mfc0;
+}
+
 void ee_step_interpreter(EE *ee)
 {
-    std::uint32_t opcode = fetch_ee_opcode(ee);
+    std::uint32_t opcode = ee->ee_fetch_opcode();
     ee->pc = ee->next_pc;
     ee->next_pc += 4;
-    parse_ee_opcode(ee, opcode);
+    ee->ee_parse_opcode(opcode);
 }
 
-std::uint32_t inline fetch_ee_opcode(EE *ee)
+void ee_interp_mfc0(EE *ee, std::uint32_t opcode)
 {
-    return ee->bus->read32(ee->pc);
-}
-
-void parse_ee_opcode(EE *ee, std::uint32_t opcode)
-{
-    std::uint8_t function = (opcode >> 26) & 0x3F;
-
-    switch (function)
-    {
-    default:
-        std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0x"
-                  << format("{:02X}", function) << ")" << RESET << "\n";
-        exit(1);
-        break;
-    }
+    printf("Hello\n");
 }
