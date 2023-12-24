@@ -7,5 +7,6 @@
 class EE;
 
 void ee_step_interpreter(EE *ee);
-std::uint32_t inline fetch_ee_opcode(EE *ee);
-void parse_ee_opcode(EE *ee, std::uint32_t opcode);
+void ee_interpreter_setup(EE *ee);
+
+void ee_interp_mfc0(EE *ee, std::uint32_t opcode);

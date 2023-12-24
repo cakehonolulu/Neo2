@@ -27,15 +27,22 @@ class EE
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
 
-    std::function<void()> ee_step;
-
-    void run();
-
     Bus *bus;
 
-    std::uint32_t pc;
-    std::uint32_t next_pc;
+    std::function<void()> ee_step;
+    void run();
+
+    std::uint32_t ee_fetch_opcode();
+    void ee_parse_opcode(std::uint32_t opcode);
+    void ee_unknown_opcode(std::uint32_t opcode);
+
+    // 104 MIPS III/IV Instructions
+    // 111 EE-Specific (SIMD-Like) Instructions
+    std::function<void(EE *, std::uint32_t)> opcodes[104 + 111] = {&EE::ee_unknown_opcode};
 
     uint128_t registers[32];
     std::uint32_t cop0_registers[32];
+
+    std::uint32_t pc;
+    std::uint32_t next_pc;
 };
