@@ -13,7 +13,7 @@ add_compile_options(-fsanitize=address -g)
 add_link_options(-fsanitize=address)
 endif()
 
-add_compile_options(-g -Iinclude -Wall -Wextra -std=c++2b)
+add_compile_options(-g -Wall -Wextra -std=c++2b)
 
 set (EXCLUDE_DIR "/CMakeFiles/")
 file (GLOB_RECURSE SRC_FILES "*.cpp" "*.cxx" "*.cc" "*.c")
@@ -34,3 +34,5 @@ endforeach(TMP_PATH)
 
 add_executable(neo2 ${SRC_FILES})
 target_link_libraries(neo2)
+
+target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)

@@ -12,7 +12,7 @@ int main(int argc, char **argv)
 
     if (argc < 2)
     {
-        std::cerr << "Usage: " << argv[0] << " <bios_file>\n";
+        std::cerr << "Usage: " << argv[0] << "-bios <bios_file>\n";
         return 1;
     }
     else
@@ -21,7 +21,7 @@ int main(int argc, char **argv)
         {
             if (bios_arg.compare(argv[i]) == 0)
             {
-                if (argv[i + 1] != NULL)
+                if (argv[i + 1] != nullptr)
                 {
                     bios_file = argv[i + 1];
                     i++;
