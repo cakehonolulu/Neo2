@@ -1,4 +1,20 @@
 #pragma once
+#include <ee/ee.hh>
+#include <bus/bus.hh>
+#include <log/log.hh>
+
+class Neo2
+{
+  public:
+    Neo2();
+    ~Neo2();
+
+    void run_ee();
+
+  private:
+    Bus bus;
+    EE ee;
+};
 
 #define RESET "\033[0m"
 #define BLACK "\033[30m"              /* Black */

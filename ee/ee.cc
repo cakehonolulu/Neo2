@@ -1,5 +1,6 @@
 #include <cstring>
 #include <ee/ee.hh>
+#include <log/log.hh>
 #include <iostream>
 #include <neo2.hh>
 
@@ -13,21 +14,23 @@ using fmt::format;
 
 EE::EE(Bus *bus_, EmulationMode mode)
 {
+	Logger::set_subsystem("EE");
+
     bus = bus_;
 
     switch (mode)
     {
     case EmulationMode::Interpreter:
-        std::cout << CYAN << "[EE] Running in Interpreter mode..." << RESET "\n";
+        Logger::info("Running in Interpreter mode...");
         ee_interpreter_setup(this);
         ee_step = std::bind(&ee_step_interpreter, this);
         break;
     case EmulationMode::CachedInterpreter:
-        std::cerr << BOLDRED << "[EE] Cached interpreter mode is unavailable" << RESET "\n";
+        Logger::error("Cached interpreter mode is unavailable");
         exit(1);
         break;
     default:
-        std::cerr << BOLDRED << "[EE] Invalid emulation mode" << RESET "\n";
+        Logger::error("Invalid emulation mode");
         exit(1);
         break;
     }
@@ -63,7 +66,7 @@ void EE::ee_parse_opcode(std::uint32_t opcode)
 
 void EE::ee_unknown_opcode(std::uint32_t opcode)
 {
-    std::cerr << BOLDRED << "[EE] Unimplemented opcode: 0x" << format("{:04X}", opcode) << " (Function bits: 0x"
-              << format("{:02X}", (opcode >> 26) & 0x3F) << ")" << RESET << "\n";
+    Logger::error("Unimplemented opcode: 0x" + format("{:04X}", opcode) + " (Function bits: 0x"
+              + format("{:02X}", (opcode >> 26) & 0x3F) + ")");
     exit(1);
 }
