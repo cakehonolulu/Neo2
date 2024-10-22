@@ -11,7 +11,7 @@ using fmt::format;
 
 void ee_interpreter_setup(EE *ee)
 {
-    std::cout << CYAN << "[EE] Populating opcode table..." << RESET "\n";
+	Logger::info("Populating opcode table...");
     ee->opcodes[0x10] = ee_interp_mfc0;
 }
 

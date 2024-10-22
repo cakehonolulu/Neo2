@@ -1,4 +1,5 @@
 #include <bus/bus.hh>
+#include <log/log.hh>
 #include <cassert>
 #include <cstring>
 #include <fstream>
@@ -7,6 +8,8 @@
 
 Bus::Bus(BusMode mode)
 {
+	Logger::set_subsystem("BUS");
+
     // BIOS (4MB)
     bios.resize(1024 * 1024 * 4);
 
@@ -22,14 +25,14 @@ Bus::Bus(BusMode mode)
     case BusMode::SoftwareFastMem:
         fmem_init();
         read32 = std::bind(&Bus::fmem_read32, this, std::placeholders::_1);
-        std::cout << CYAN << "[BUS] Running Bus w/Software FastMem mode..." << RESET "\n";
+        Logger::info("Running Bus w/Software FastMem mode...");
         break;
     case BusMode::Ranged:
-        std::cerr << BOLDRED << "[BUS] Ranged Bus mode is unimplemented" << RESET "\n";
+        Logger::error("Ranged Bus mode is unimplemented");
         exit(1);
         break;
     default:
-        std::cerr << BOLDRED << "[BUS] Invalid Bus mode" << RESET "\n";
+        Logger::error("Invalid Bus mode");
         exit(1);
         break;
     }
@@ -41,7 +44,7 @@ void Bus::load_bios(const std::string &bios_path)
 
     if (!bios_file.is_open())
     {
-        std::cerr << BOLDRED << "Failed to open the BIOS file: " << bios_path << RESET << "\n";
+        Logger::error("Failed to open the BIOS file: " + bios_path);
         return;
     }
 
