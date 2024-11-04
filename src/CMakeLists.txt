@@ -1,0 +1,8 @@
+target_sources(neo2
+        PRIVATE
+        neo2.cc
+        bus/bus.cc
+        bus/bus_fmem.cc
+        ee/ee.cc
+        ee/ee_interpreter.cc
+        log/log.cpp)

@@ -52,7 +52,7 @@ Neo2::~Neo2()
     Logger::raw("Neo2 - Shutting down Neo2 system.");
 }
 
-void Neo2::run_ee()
+/*void Neo2::run_ee()
 {
     ee.run();
-}
+}*/

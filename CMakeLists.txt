@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.5)
-project(Neo2)
+cmake_minimum_required(VERSION 3.23)
+project(Neo2 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -15,24 +15,10 @@ endif()
 
 add_compile_options(-g -Wall -Wextra -std=c++2b)
 
-set (EXCLUDE_DIR "/CMakeFiles/")
-file (GLOB_RECURSE SRC_FILES "*.cpp" "*.cxx" "*.cc" "*.c")
-foreach (TMP_PATH ${SRC_FILES})
-    string (FIND ${TMP_PATH} ${EXCLUDE_DIR} EXCLUDE_DIR_FOUND)
-    if (NOT ${EXCLUDE_DIR_FOUND} EQUAL -1)
-        list (REMOVE_ITEM SRC_FILES ${TMP_PATH})
-    endif ()
-endforeach(TMP_PATH)
+add_executable(neo2)
 
-set (EXCLUDE_DIR "/external/")
-foreach (TMP_PATH ${SRC_FILES})
-    string (FIND ${TMP_PATH} ${EXCLUDE_DIR} EXCLUDE_DIR_FOUND)
-    if (NOT ${EXCLUDE_DIR_FOUND} EQUAL -1)
-        list (REMOVE_ITEM SRC_FILES ${TMP_PATH})
-    endif ()
-endforeach(TMP_PATH)
+add_subdirectory(src)
 
-add_executable(neo2 ${SRC_FILES})
-target_link_libraries(neo2)
+add_subdirectory(frontend)
 
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)

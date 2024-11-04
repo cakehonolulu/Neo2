@@ -7,11 +7,12 @@ class Neo2
 {
   public:
     Neo2();
-    ~Neo2();
+    virtual ~Neo2();
 
-    void run_ee();
+    virtual void init() = 0;
+    virtual void run() = 0;
 
-  private:
+  protected:
     Bus bus;
     EE ee;
 };
