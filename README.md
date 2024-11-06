@@ -6,4 +6,6 @@
 A work-in-progress PlayStation 2 Emulator
 </p>
 
+![screenshot](resources/screenshot.png)
+
 ## Resources
