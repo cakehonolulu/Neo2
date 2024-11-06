@@ -37,6 +37,10 @@ class Logger
     static void add_backend(std::shared_ptr<LogBackend> backend);
     static void remove_backend(std::shared_ptr<LogBackend> backend);
 
+	static const std::vector<std::shared_ptr<LogBackend>>& get_backends() {
+        return backends;
+    }
+
     static std::string current_subsystem;
 
   private:

@@ -6,7 +6,7 @@
 class Neo2
 {
   public:
-    Neo2();
+    Neo2(std::shared_ptr<LogBackend> logger = nullptr);
     virtual ~Neo2();
 
     virtual void init() = 0;
