@@ -9,7 +9,7 @@ void Logger::set_subsystem(const std::string &subsystem)
     current_subsystem = subsystem;
 }
 
-void Logger::info(const std::string &message)
+void Logger::info(const std::string & message)
 {
     log(LogLevel::Info, message);
 }

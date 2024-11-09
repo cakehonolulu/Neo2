@@ -5,4 +5,5 @@ target_sources(neo2
         bus/bus_fmem.cc
         ee/ee.cc
         ee/ee_interpreter.cc
+        ee/ee_disassembler.cc
         log/log.cpp)

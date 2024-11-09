@@ -2,6 +2,7 @@
 #include <ee/ee.hh>
 #include <bus/bus.hh>
 #include <log/log.hh>
+#include "ee/ee_disassembler.hh"
 
 class Neo2
 {
@@ -12,9 +13,9 @@ class Neo2
     virtual void init() = 0;
     virtual void run() = 0;
 
-  protected:
-    Bus bus;
-    EE ee;
+	EE ee;
+	Bus bus;
+	Disassembler disassembler;
 };
 
 #define RESET "\033[0m"
