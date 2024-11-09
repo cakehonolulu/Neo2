@@ -1,3 +1,5 @@
+#pragma once
+
 #include <neo2.hh>
 #include "log/log_imgui.hh"
 

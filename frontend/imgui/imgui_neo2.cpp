@@ -12,6 +12,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "log/log_imgui.hh"
+#include "frontends/imgui/imgui_disassembler.hh"
 #include <stdio.h>
 #include <SDL3/SDL.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
@@ -19,6 +20,7 @@
 #else
 #include <SDL3/SDL_opengl.h>
 #endif
+#include "ImGuiFileDialog.h"
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -80,6 +82,9 @@ void ImGui_Neo2::run()
 
     // Main loop
     bool done = false;
+	Disassembler disassembler_instance;  // Initialize a Disassembler instance
+    ImGuiDisassembler disassembler(*this, disassembler_instance);
+	std::string bios_file_path;
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
     // You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
@@ -113,6 +118,30 @@ void ImGui_Neo2::run()
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+
+		// Add Menu Bar
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("Open BIOS")) {
+                    ImGuiFileDialog::Instance()->OpenDialog("ChooseBiosFile", "Select BIOS File", ".bin,.rom");
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMainMenuBar();
+        }
+
+        // Handle the file dialog for loading BIOS
+        if (ImGuiFileDialog::Instance()->Display("ChooseBiosFile")) {
+            if (ImGuiFileDialog::Instance()->IsOk()) {
+                bios_file_path = ImGuiFileDialog::Instance()->GetFilePathName();
+				std::string log_message = "BIOS file selected: " + bios_file_path;
+                Logger::info(log_message);
+
+				bus.load_bios(bios_file_path);
+            }
+            ImGuiFileDialog::Instance()->Close();
+        }
+		disassembler.render_disassembly();
 
         // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
         /*{

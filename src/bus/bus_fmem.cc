@@ -30,9 +30,9 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
     const auto pointer = address_space_r[page]; // Get the pointer to this page
 
     if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
-        return *(uint32_t *)(pointer +
-                             offset); // Actually read the value using the pointer from the page table + the offset.
-
+	{
+		return *(uint32_t *)(pointer + offset);
+	}
     else
     {
         // Handle other cases or throw an exception if needed
