@@ -1,11 +1,12 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <unordered_map>
+#include "cpu.hh"
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // Enum defining different instruction types
 enum class InstructionType {
@@ -56,11 +57,9 @@ struct PseudoOpcode {
 class Disassembler {
 public:
     Disassembler();
-    DisassemblyData disassemble(uint32_t pc, uint32_t opcode);
+    DisassemblyData disassemble(CPU* cpu, uint32_t pc, uint32_t opcode, bool pseudos);
     std::string get_symbol_name(uint32_t address);
-    void set_pseudos(bool state);  // Setter for pseudocode flag
 
-	bool pseudos;
 private:
     // Flag to toggle pseudoinstruction usage
     std::unordered_map<uint8_t, OpcodeEntry> opcode_mnemonics;
