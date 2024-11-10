@@ -201,7 +201,6 @@ SpaceBeforeParensOptions:
   AfterFunctionDeclarationName: false
   AfterIfMacros:   true
   AfterOverloadedOperator: false
-  AfterPlacementOperator: {}
   AfterRequiresInClause: false
   AfterRequiresInExpression: false
   BeforeNonEmptyParentheses: false
