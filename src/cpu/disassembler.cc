@@ -24,14 +24,10 @@ const std::string cop0_register_names[32] = {
 };
 
 // Constructor
-Disassembler::Disassembler() : pseudos(true) {
+Disassembler::Disassembler()
+{
     initialize_opcode_table();
     initialize_pseudo_opcode_table();
-}
-
-// Setter for pseudocode flag
-void Disassembler::set_pseudos(bool state) {
-    this->pseudos = state;
 }
 
 // Initialize opcode tables
@@ -126,7 +122,7 @@ std::optional<std::string> Disassembler::match_pseudo_opcode(uint32_t opcode) co
 }
 
 // Disassemble function
-DisassemblyData Disassembler::disassemble(uint32_t pc, uint32_t opcode) {
+DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode, bool pseudos) {
     // Check for pseudoinstruction first
     if (pseudos) {
         for (const auto& pseudo : pseudo_opcodes) {

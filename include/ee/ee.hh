@@ -21,8 +21,9 @@ class EE : public CPU
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
 
-    std::function<void()> step;
+    std::function<void()> step_;
     void run() override;
+    void step() override;
 
     std::uint32_t fetch_opcode() override;
     void parse_opcode(std::uint32_t opcode) override;
@@ -30,11 +31,11 @@ class EE : public CPU
 
     // 104 MIPS III/IV Instructions
     // 111 EE-Specific (SIMD-Like) Instructions
-    std::function<void(EE *, std::uint32_t)> opcodes[104 + 111] = {&EE::unknown_opcode};
+    std::function<void(EE *, std::uint32_t)> opcodes[104 + 111];
 
     uint128_t registers[32];
     std::uint32_t cop0_registers[32];
 
-    std::uint32_t pc;
+    std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
 };

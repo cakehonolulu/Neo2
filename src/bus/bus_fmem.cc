@@ -1,6 +1,15 @@
 #include <bus/bus.hh>
 #include <bus/bus_fmem.hh>
+#include <log/log.hh>
 #include <cstring>
+
+#if __has_include(<format>)
+#include <format>
+using std::format;
+#else
+#include <fmt/format.h>
+using fmt::format;
+#endif
 
 void Bus::fmem_init()
 {
@@ -36,7 +45,9 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
     else
     {
         // Handle other cases or throw an exception if needed
-        printf("32-bit read from unknown address: 0x%08X", address);
-        exit(1);
+        std::string msg;
+        msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
+        Logger::error(msg.c_str());
+        return 0;
     }
 }

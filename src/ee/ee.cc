@@ -21,7 +21,7 @@ EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode)
     case EmulationMode::Interpreter:
         Logger::info("Running in Interpreter mode...");
         ee_interpreter_setup(this);
-        step = std::bind(&ee_step_interpreter, this);
+        step_ = std::bind(&ee_step_interpreter, this);
         break;
     case EmulationMode::CachedInterpreter:
         Logger::error("Cached interpreter mode is unavailable");
@@ -36,6 +36,10 @@ EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode)
     std::memset(registers, 0, sizeof(registers));
     pc = 0xBFC00000;
     next_pc = pc + 4;
+
+    for (auto& opcode : opcodes) {
+        opcode = [this](EE* cpu, std::uint32_t code) { this->unknown_opcode(code); };
+    }
 }
 
 EE::~EE()
@@ -48,6 +52,10 @@ void EE::run()
     {
         step();
     }
+}
+
+void EE::step() {
+    step_();
 }
 
 std::uint32_t EE::fetch_opcode()
@@ -66,5 +74,4 @@ void EE::unknown_opcode(std::uint32_t opcode)
 {
     Logger::error("Unimplemented EE opcode: 0x" + format("{:04X}", opcode) + " (Function bits: 0x"
               + format("{:02X}", (opcode >> 26) & 0x3F) + ")");
-    exit(1);
 }

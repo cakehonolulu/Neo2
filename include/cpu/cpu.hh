@@ -17,12 +17,15 @@ public:
     virtual ~CPU() = default;
 
     virtual void run() = 0;
+    virtual void step() = 0;
     virtual std::uint32_t fetch_opcode() = 0;
     virtual void parse_opcode(std::uint32_t opcode) = 0;
 
-protected:
     Bus* bus;
-    EmulationMode mode;
+
     std::uint32_t pc;
+
+  protected:
+    EmulationMode mode;
     std::uint32_t next_pc;
 };

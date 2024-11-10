@@ -12,16 +12,17 @@ public:
     IOP(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~IOP();
 
-    std::function<void()> step;
+    std::function<void()> step_;
     void run() override;
+    void step() override;
 
     std::uint32_t fetch_opcode() override;
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
 
     std::uint32_t registers[32];
-    std::uint32_t pc;
+    std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
 
-    std::function<void(IOP*, std::uint32_t)> opcodes[256] = {&IOP::unknown_opcode};
+    std::function<void(IOP*, std::uint32_t)> opcodes[256];
 };

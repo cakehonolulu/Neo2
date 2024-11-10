@@ -9,8 +9,8 @@ set(CMAKE_C_FLAGS_RELWITHDEBINFO "-Wall -Wextra -g -O2")
 set(CMAKE_C_FLAGS_RELEASE "-Wall -Wextra -O2")
 
 if (ASAN)
-add_compile_options(-fsanitize=address -g)
-add_link_options(-fsanitize=address)
+    add_compile_options(-fsanitize=address,leak,undefined,pointer-compare,pointer-subtract -g)
+    add_link_options(-fsanitize=address,leak,undefined,pointer-compare,pointer-subtract)
 endif()
 
 add_compile_options(-g -Wall -Wextra -std=c++2b)
