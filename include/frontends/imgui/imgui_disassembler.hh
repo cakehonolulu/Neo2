@@ -1,6 +1,6 @@
 #pragma once
 
-#include <ee/ee_disassembler.hh>
+#include <cpu/disassembler.hh>
 #include <frontends/imgui/imgui_neo2.h>
 
 class ImGuiDisassembler {

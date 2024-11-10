@@ -3,7 +3,9 @@ target_sources(neo2
         neo2.cc
         bus/bus.cc
         bus/bus_fmem.cc
+        cpu/disassembler.cc
+        iop/iop.cc
+        iop/iop_interpreter.cc
         ee/ee.cc
         ee/ee_interpreter.cc
-        ee/ee_disassembler.cc
         log/log.cpp)

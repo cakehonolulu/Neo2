@@ -2,7 +2,8 @@
 #include <ee/ee.hh>
 #include <bus/bus.hh>
 #include <log/log.hh>
-#include "ee/ee_disassembler.hh"
+#include <cpu/disassembler.hh>
+#include <iop/iop.hh>
 
 class Neo2
 {
@@ -14,6 +15,7 @@ class Neo2
     virtual void run() = 0;
 
 	EE ee;
+    IOP iop;
 	Bus bus;
 	Disassembler disassembler;
 };
