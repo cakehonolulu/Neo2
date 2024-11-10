@@ -1,5 +1,5 @@
 #include "imgui.h"
-#include <ee/ee_disassembler.hh>
+#include <cpu/disassembler.hh>
 #include <frontends/imgui/imgui_disassembler.hh>
 #include <vector>
 #include <iomanip>

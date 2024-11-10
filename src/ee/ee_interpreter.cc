@@ -17,10 +17,10 @@ void ee_interpreter_setup(EE *ee)
 
 void ee_step_interpreter(EE *ee)
 {
-    std::uint32_t opcode = ee->ee_fetch_opcode();
+    std::uint32_t opcode = ee->fetch_opcode();
     ee->pc = ee->next_pc;
     ee->next_pc += 4;
-    ee->ee_parse_opcode(opcode);
+    ee->parse_opcode(opcode);
 }
 
 void ee_interp_mfc0(EE *ee, std::uint32_t opcode)

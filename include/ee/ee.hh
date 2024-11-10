@@ -1,16 +1,10 @@
 #pragma once
 
 #include <bus/bus.hh>
+#include <cpu/cpu.hh>
 #include <cstdint>
 #include <ee/ee_interpreter.hh>
 #include <functional>
-
-enum class EmulationMode
-{
-    Interpreter,
-    CachedInterpreter,
-    DynamicRecompiler
-};
 
 union uint128_t {
     unsigned __int128 u128;
@@ -20,25 +14,23 @@ union uint128_t {
     std::uint8_t u8[16];
 };
 
-class EE
+class EE : public CPU
 {
   private:
   public:
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
 
-    Bus *bus;
+    std::function<void()> step;
+    void run() override;
 
-    std::function<void()> ee_step;
-    void run();
-
-    std::uint32_t ee_fetch_opcode();
-    void ee_parse_opcode(std::uint32_t opcode);
-    void ee_unknown_opcode(std::uint32_t opcode);
+    std::uint32_t fetch_opcode() override;
+    void parse_opcode(std::uint32_t opcode) override;
+    void unknown_opcode(std::uint32_t opcode);
 
     // 104 MIPS III/IV Instructions
     // 111 EE-Specific (SIMD-Like) Instructions
-    std::function<void(EE *, std::uint32_t)> opcodes[104 + 111] = {&EE::ee_unknown_opcode};
+    std::function<void(EE *, std::uint32_t)> opcodes[104 + 111] = {&EE::unknown_opcode};
 
     uint128_t registers[32];
     std::uint32_t cop0_registers[32];

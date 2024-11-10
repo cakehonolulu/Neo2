@@ -1,4 +1,4 @@
-#include <ee/ee_disassembler.hh>
+#include <cpu/disassembler.hh>
 #include <sstream>
 #if __has_include(<format>)
 #include <format>

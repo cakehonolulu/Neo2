@@ -16,8 +16,8 @@ std::string resetColor() {
     return "\033[0m";
 }
 
-Neo2::Neo2(std::shared_ptr<LogBackend> logger) : bus(BusMode::SoftwareFastMem), ee(&bus, EmulationMode::Interpreter)
-{
+Neo2::Neo2(std::shared_ptr<LogBackend> logger)
+    : bus(BusMode::SoftwareFastMem), ee(&bus, EmulationMode::Interpreter), iop(&bus, EmulationMode::Interpreter) {
     if (logger) {
         Logger::add_backend(logger);
     }
