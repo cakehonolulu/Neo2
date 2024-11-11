@@ -8,13 +8,13 @@
 #include <log/log_term.hh>
 #include <frontends/imgui/imgui_neo2.h>
 
+#include "frontends/imgui/imgui_debug.hh"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "log/log_imgui.hh"
-#include "frontends/imgui/imgui_disassembler.hh"
-#include <stdio.h>
 #include <SDL3/SDL.h>
+#include <stdio.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
 #else
@@ -84,9 +84,11 @@ void ImGui_Neo2::run()
     bool done = false;
     bool show_ee_disassembler = false;
     bool show_iop_disassembler = false;
+    bool show_ee_registers = false;
+    bool show_iop_registers = false;
     static bool suppress_exit_notification = false;
 
-    ImGuiDisassembler disassembler(*this, this->disassembler);
+    ImGuiDebug debug_interface(*this, this->disassembler);
 	std::string bios_file_path;
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -131,8 +133,10 @@ void ImGui_Neo2::run()
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {
-                ImGui::MenuItem("EE Disassembly", nullptr, &show_ee_disassembler);   // Toggle EE Disassembler
-                ImGui::MenuItem("IOP Disassembly", nullptr, &show_iop_disassembler); // Toggle IOP Disassembler
+                ImGui::MenuItem("EE Disassembly", nullptr, &show_ee_disassembler);
+                ImGui::MenuItem("IOP Disassembly", nullptr, &show_iop_disassembler);
+                ImGui::MenuItem("EE Registers", nullptr, &show_ee_registers);
+                ImGui::MenuItem("IOP Registers", nullptr, &show_iop_registers);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -140,10 +144,16 @@ void ImGui_Neo2::run()
 
         // Render disassembly windows if toggled on
         if (show_ee_disassembler) {
-            disassembler.render_cpu_disassembly("EE Disassembler", this->ee.pc, &this->ee, disassembler.use_pseudos_ee, disassembler.scroll_offset_ee);
+            debug_interface.render_cpu_disassembly("EE Disassembler", this->ee.pc, &this->ee, debug_interface.use_pseudos_ee, debug_interface.scroll_offset_ee);
         }
         if (show_iop_disassembler) {
-            disassembler.render_cpu_disassembly("IOP Disassembler", this->iop.pc, &this->iop, disassembler.use_pseudos_iop, disassembler.scroll_offset_iop);
+            debug_interface.render_cpu_disassembly("IOP Disassembler", this->iop.pc, &this->iop, debug_interface.use_pseudos_iop, debug_interface.scroll_offset_iop);
+        }
+        if (show_ee_registers) {
+            debug_interface.render_cpu_registers("EE Registers", &this->ee);
+        }
+        if (show_iop_registers) {
+            debug_interface.render_cpu_registers("IOP Registers", &this->iop);
         }
 
         // Handle the file dialog for loading BIOS

@@ -3,11 +3,13 @@
 #include <cpu/disassembler.hh>
 #include <frontends/imgui/imgui_neo2.h>
 
-class ImGuiDisassembler {
+class ImGuiDebug {
   public:
-    ImGuiDisassembler(ImGui_Neo2& neo2_instance, Disassembler& disassembler_instance);
-    void render_disassembly();
+    ImGuiDebug(ImGui_Neo2& neo2_instance, Disassembler& disassembler_instance);
+
+    void render_debug_windows();
     void render_cpu_disassembly(const char* window_name, uint32_t start_pc, CPU* cpu, bool& pseudos, int& scroll_offset);
+    void render_cpu_registers(const char* window_name, CPU* cpu);
 
     bool use_pseudos_ee = true;
     bool use_pseudos_iop = true;
