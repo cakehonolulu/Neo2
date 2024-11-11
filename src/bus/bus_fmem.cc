@@ -48,6 +48,6 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
         std::string msg;
         msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
         Logger::error(msg.c_str());
-        return Neo2::exit(1, Neo2::Subsystem::Bus);
+        return 0;
     }
 }
