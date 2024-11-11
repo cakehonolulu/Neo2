@@ -84,6 +84,7 @@ void ImGui_Neo2::run()
     bool done = false;
     bool show_ee_disassembler = false;
     bool show_iop_disassembler = false;
+    static bool suppress_exit_notification = false;
 
     ImGuiDisassembler disassembler(*this, this->disassembler);
 	std::string bios_file_path;
@@ -159,6 +160,44 @@ void ImGui_Neo2::run()
 
 		imgui_logger->render();
 
+        if (Neo2::is_aborted() && !suppress_exit_notification) {
+            // Set window size and open popup
+            ImGui::SetNextWindowSize(ImVec2(350, 150), ImGuiCond_Appearing);
+            ImGui::OpenPopup("Exit Notification");
+
+            bool open = true;
+            if (ImGui::Begin("Exit Notification", &open, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse)) {
+                ImGui::Text("The emulator encountered a critical error.");
+
+                // Reset button to clear the aborted state and resume
+                if (ImGui::Button("Reset")) {
+                    this->ee.reset();
+                    this->iop.reset();
+                    Neo2::reset_aborted();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+
+                // Close button to exit the emulator
+                if (ImGui::Button("Exit emulator")) {
+                    done = true;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::End();
+            }
+
+            // If "X" button or other close action is taken, suppress the popup for now
+            if (!open) {
+                suppress_exit_notification = true;
+            }
+        }
+
+        // Reset suppress_exit_notification if aborted state is cleared
+        if (!Neo2::is_aborted()) {
+            suppress_exit_notification = false;
+        }
+
         // Rendering
         ImGui::Render();
         //SDL_RenderSetScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
@@ -180,43 +219,3 @@ void ImGui_Neo2::run()
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
-
-/*int main(int argc, char **argv)
-{
-    const std::string bios_arg = "-bios";
-    std::string bios_file;
-
-    if (argc < 2)
-    {
-        std::cerr << "Usage: " << argv[0] << " -bios <bios_file>\n";
-        return 1;
-    }
-    else
-    {
-        for (int i = 1; i < argc; i++)
-        {
-            if (bios_arg.compare(argv[i]) == 0)
-            {
-                if (argv[i + 1] != nullptr)
-                {
-                    bios_file = argv[i + 1];
-                    i++;
-                }
-                else
-                {
-                    std::cerr << "No bios file provided!\n";
-                    return 1;
-                }
-            }
-        }
-    }
-
-    std::shared_ptr<LogBackend> terminal_backend = std::make_shared<TerminalLogBackend>();
-    Logger::add_backend(terminal_backend);
-
-	Neo2 neo2;
-	neo2.run_ee();
-
-    return 0;
-}
-*/

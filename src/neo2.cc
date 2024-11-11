@@ -16,6 +16,12 @@ std::string resetColor() {
     return "\033[0m";
 }
 
+int Neo2::exit(int code, Subsystem subsystem) {
+    aborted = true;
+    guilty_subsystem = subsystem;
+    return code;
+}
+
 Neo2::Neo2(std::shared_ptr<LogBackend> logger)
     : bus(BusMode::SoftwareFastMem), ee(&bus, EmulationMode::Interpreter), iop(&bus, EmulationMode::Interpreter) {
     if (logger) {
@@ -77,8 +83,3 @@ Neo2::~Neo2()
 {
     Logger::raw("Neo2 - Shutting down Neo2 system.");
 }
-
-/*void Neo2::run_ee()
-{
-    ee.run();
-}*/
