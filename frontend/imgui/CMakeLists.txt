@@ -30,7 +30,7 @@ target_sources(neo2
         ${IMGUI_FILE_DIALOG_SOURCES}
         main.cpp
         imgui_neo2.cpp
-        imgui_disassembler.cpp
+        imgui_debug.cpp
         imgui_log.cpp
         imgui_exit.cpp)
 
