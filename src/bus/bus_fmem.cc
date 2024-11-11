@@ -4,6 +4,7 @@
 #include <cstring>
 
 #if __has_include(<format>)
+#include "neo2.hh"
 #include <format>
 using std::format;
 #else
@@ -44,10 +45,9 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
 	}
     else
     {
-        // Handle other cases or throw an exception if needed
         std::string msg;
         msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
         Logger::error(msg.c_str());
-        return 0;
+        return Neo2::exit(1, Neo2::Subsystem::Bus);
     }
 }

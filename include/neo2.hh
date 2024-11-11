@@ -5,19 +5,39 @@
 #include <cpu/disassembler.hh>
 #include <iop/iop.hh>
 
-class Neo2
-{
+class Neo2 {
   public:
+    enum class Subsystem {
+        None,
+        EE,
+        IOP,
+        Bus,
+        Disassembler
+    };
+
     Neo2(std::shared_ptr<LogBackend> logger = nullptr);
     virtual ~Neo2();
 
     virtual void init() = 0;
     virtual void run() = 0;
 
-	EE ee;
+    static int exit(int code, Subsystem subsystem);
+    static bool is_aborted() { return aborted; }
+    static void reset_aborted() {
+        aborted = false;
+        guilty_subsystem = Subsystem::None;
+    }
+
+    static Subsystem get_guilty_subsystem() { return guilty_subsystem; }
+
+    EE ee;
     IOP iop;
-	Bus bus;
-	Disassembler disassembler;
+    Bus bus;
+    Disassembler disassembler;
+
+  private:
+    static inline bool aborted = false;
+    static inline Subsystem guilty_subsystem = Subsystem::None;
 };
 
 #define RESET "\033[0m"

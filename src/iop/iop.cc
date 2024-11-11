@@ -3,6 +3,7 @@
 #include <cstring>
 
 #if __has_include(<format>)
+#include "neo2.hh"
 #include <format>
 using std::format;
 #else
@@ -35,7 +36,7 @@ IOP::IOP(Bus* bus_, EmulationMode mode) : CPU(bus_, mode) {
 IOP::~IOP() {}
 
 void IOP::run() {
-    while (true) {
+    while (!Neo2::is_aborted()) {
         step();
     }
 }
@@ -43,6 +44,13 @@ void IOP::run() {
 void IOP::step() {
     step_();
 }
+
+void IOP::reset() {
+    pc = 0xBFC00000;
+    old_pc = 0xBFC00000;
+    next_pc = pc + 4;
+    std::memset(registers, 0, sizeof(registers));
+};
 
 std::uint32_t IOP::fetch_opcode() {
     return bus->read32(pc);
@@ -58,4 +66,5 @@ void IOP::parse_opcode(std::uint32_t opcode)
 void IOP::unknown_opcode(std::uint32_t opcode) {
     Logger::error("Unimplemented IOP opcode: 0x" + format("{:04X}", opcode) + " (Function bits: 0x"
               + format("{:02X}", (opcode >> 26) & 0x3F) + ")");
+    Neo2::exit(1, Neo2::Subsystem::IOP);
 }

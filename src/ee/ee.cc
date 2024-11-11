@@ -48,7 +48,7 @@ EE::~EE()
 
 void EE::run()
 {
-    while (true)
+    while (!Neo2::is_aborted())
     {
         step();
     }
@@ -57,6 +57,13 @@ void EE::run()
 void EE::step() {
     step_();
 }
+
+void EE::reset() {
+    pc = 0xBFC00000;
+    old_pc = 0xBFC00000;
+    next_pc = pc + 4;
+    std::memset(registers, 0, sizeof(registers));
+};
 
 std::uint32_t EE::fetch_opcode()
 {
@@ -74,4 +81,5 @@ void EE::unknown_opcode(std::uint32_t opcode)
 {
     Logger::error("Unimplemented EE opcode: 0x" + format("{:04X}", opcode) + " (Function bits: 0x"
               + format("{:02X}", (opcode >> 26) & 0x3F) + ")");
+    Neo2::exit(1, Neo2::Subsystem::EE);
 }
