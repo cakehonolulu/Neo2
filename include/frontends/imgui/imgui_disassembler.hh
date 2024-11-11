@@ -13,7 +13,7 @@ class ImGuiDisassembler {
     bool use_pseudos_iop = true;
     int scroll_offset_ee = 0;
     int scroll_offset_iop = 0;
-    bool aborted_still = false;
+    bool error_state_active = false;
 
   private:
     ImGui_Neo2& neo2;
