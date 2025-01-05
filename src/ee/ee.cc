@@ -1,5 +1,6 @@
 #include <cstring>
 #include <ee/ee.hh>
+#include <ee/ee_jit.hh>
 #include <log/log.hh>
 #include <iostream>
 #include <neo2.hh>
@@ -12,7 +13,7 @@ using std::format;
 using fmt::format;
 #endif
 
-EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode)
+EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<EEJIT>(this))
 {
 	Logger::set_subsystem("EE");
 
@@ -26,6 +27,10 @@ EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode)
     case EmulationMode::CachedInterpreter:
         Logger::error("Cached interpreter mode is unavailable");
         exit(1);
+        break;
+    case EmulationMode::JIT:
+        Logger::info("Running in JIT mode...");
+        step_ = std::bind(&EEJIT::step, jit.get());
         break;
     default:
         Logger::error("Invalid emulation mode");
@@ -55,7 +60,9 @@ void EE::run()
 }
 
 void EE::step() {
-    step_();
+    if (!Neo2::is_aborted()) {
+        step_();
+    }
 }
 
 void EE::reset() {
@@ -82,4 +89,22 @@ void EE::unknown_opcode(std::uint32_t opcode)
     Logger::error("Unimplemented EE opcode: 0x" + format("{:04X}", opcode) + " (Function bits: 0x"
               + format("{:02X}", (opcode >> 26) & 0x3F) + ")");
     Neo2::exit(1, Neo2::Subsystem::EE);
+}
+
+void EE::set_backend(EmulationMode mode) {
+    switch (mode)
+    {
+    case EmulationMode::Interpreter:
+        Logger::info("Switching to Interpreter mode...");
+        step_ = std::bind(&ee_step_interpreter, this);
+        break;
+    case EmulationMode::JIT:
+        Logger::info("Switching to JIT mode...");
+        step_ = std::bind(&EEJIT::step, jit.get());
+        break;
+    default:
+        Logger::error("Invalid emulation mode");
+        exit(1);
+        break;
+    }
 }

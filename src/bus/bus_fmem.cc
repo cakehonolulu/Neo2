@@ -2,6 +2,10 @@
 #include <bus/bus_fmem.hh>
 #include <log/log.hh>
 #include <cstring>
+#include <execinfo.h>
+#include <cxxabi.h>
+#include <unistd.h>
+#include <cstdio>
 
 #if __has_include(<format>)
 #include "neo2.hh"
@@ -43,11 +47,16 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
 	{
 		return *(uint32_t *)(pointer + offset);
 	}
+    else if (address >= 0xBF000000 && address < (0xBFC00000))
+    {
+        // TODO: Minor hack for debugger not to exit
+        return 0x00000000;
+    }
     else
     {
         std::string msg;
         msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
         Logger::error(msg.c_str());
-        return 0;
+        return Neo2::exit(1, Neo2::Subsystem::Bus);
     }
 }

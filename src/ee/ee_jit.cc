@@ -1,0 +1,233 @@
+#include <ee/ee_jit.hh>
+#include <log/log.hh>
+#include <neo2.hh>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/ExecutionEngine/MCJIT.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Verifier.h>
+#include <sstream>
+
+#if __has_include(<format>)
+#include <format>
+using std::format;
+#else
+#include <fmt/format.h>
+using fmt::format;
+#endif
+
+EEJIT::EEJIT(EE* core) : core(core) {
+    // Initialize LLVM components
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeNativeTargetAsmParser();
+
+    // Create context and builder
+    context = std::make_unique<llvm::LLVMContext>();
+    builder = std::make_unique<llvm::IRBuilder<>>(*context);
+
+    // Create module
+    module = std::make_unique<llvm::Module>("ee_jit", *context);
+    
+    // Create execution engine with module ownership
+    std::string errStr;
+    llvm::Module* modulePtr = module.get(); // Keep raw pointer
+    
+    executionEngine = std::unique_ptr<llvm::ExecutionEngine>(
+        llvm::EngineBuilder(std::unique_ptr<llvm::Module>(modulePtr))
+            .setErrorStr(&errStr)
+            .setEngineKind(llvm::EngineKind::JIT)
+            .create());
+
+    if (!executionEngine) {
+        Logger::error("Failed to create ExecutionEngine: " + errStr);
+        return;
+    }
+
+    Logger::info("JIT initialization successful");
+    initialize_opcode_table();
+    ready = true;
+}
+
+EEJIT::~EEJIT() {
+    if (builder) {
+        builder.reset();
+    }
+
+    if (executionEngine) {
+        if (module) {
+            executionEngine->removeModule(module.get());
+            module.reset();
+        }
+        executionEngine.reset();
+    }
+
+    if (context) {
+        context.reset();
+    }
+}
+
+void EEJIT::initialize_opcode_table() {
+    // Initialize the opcode table
+}
+
+std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
+    bool is_branch = false;
+    bool error = false;
+
+    // Decode the opcode and generate IR
+    // This is a simplified example, you should add more opcodes and their handlers
+    switch ((opcode  >> 26) & 63) {
+        default:
+            error = true;
+            Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
+            Neo2::exit(1, Neo2::Subsystem::EE);
+            break;
+    }
+
+    uint32_t next_pc = current_pc + 4;
+    return {is_branch, next_pc, error};
+}
+
+void EEJIT::step() {
+    single_instruction_mode = true;
+    std::uint32_t opcode = core->fetch_opcode();
+    execute_opcode(opcode);
+    core->registers[0].u128 = 0; // Fix assignment to uint128_t
+    single_instruction_mode = false;
+}
+
+void EEJIT::run() {
+    std::uint32_t opcode = core->fetch_opcode();
+    execute_opcode(opcode);
+    core->registers[0].u128 = 0; // Fix assignment to uint128_t
+}
+
+void EEJIT::execute_opcode(std::uint32_t opcode) {
+    // Try to find existing block
+    Logger::info("Trying to search for block at PC: " + format("0x{:08X}", core->pc));
+    CompiledBlock* block = find_block(core->pc);
+    
+    if (!block) {
+        Logger::info("Block not found, compiling new block at PC: " + format("0x{:08X}", core->pc));
+        // Compile new block if not found
+        block = compile_block(core->pc, single_instruction_mode);
+        if (!block) {
+            Logger::error("Failed to compile block at PC: " + format("0x{:08X}", core->pc));
+            return;
+        }
+        
+        // Add to cache
+        if (block_cache.size() >= CACHE_SIZE) {
+            evict_oldest_block();
+        }
+        block_cache[core->pc] = *block;
+    }
+    
+    // Execute block
+    block->last_used = ++execution_count;
+    auto exec_fn = (int (*)())block->code_ptr;
+    Logger::info("Executing block at PC: " + format("0x{:08X}", core->pc));
+    int result = exec_fn();
+    Logger::info("Executed block at PC: " + format("0x{:08X}", core->pc));
+}
+
+CompiledBlock* EEJIT::compile_block(uint32_t start_pc, bool single_instruction) {
+    uint32_t current_pc = start_pc;
+    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
+    bool is_branch = false;
+    
+    // Create new module for this block
+    auto new_module = std::make_unique<llvm::Module>(
+        "block_" + std::to_string(start_pc), *context);
+    
+    if (!new_module) {
+        Logger::error("Failed to create LLVM module");
+        return nullptr;
+    }
+        
+    // Create function and basic block
+    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
+    llvm::Function *func = llvm::Function::Create(funcType, 
+                                                llvm::Function::ExternalLinkage,
+                                                "exec_" + std::to_string(start_pc),
+                                                new_module.get());
+
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
+    builder->SetInsertPoint(entry);
+
+    while (true) {
+        uint32_t opcode = core->fetch_opcode(); // Fix function call
+        
+        // Generate IR for opcode
+        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+        is_branch = branch;
+
+        if (error) {
+            Logger::error("Error generating IR for opcode");
+            Neo2::exit(1, Neo2::Subsystem::EE);
+            return nullptr;
+        }
+
+        // Check if opcode is a branch or jump
+        if (is_branch || single_instruction) {
+            end_pc = current_pc_;
+            break;
+        }
+
+        current_pc = current_pc_;
+    }
+
+    builder->CreateRetVoid();
+
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    new_module->print(os, nullptr);
+    os.flush();
+
+    // Add module to execution engine
+    if (!executionEngine) {
+        Logger::error("Execution engine is not initialized");
+        return nullptr;
+    }
+
+    executionEngine->addModule(std::move(new_module));
+    executionEngine->finalizeObject();
+    
+    auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
+    if (!exec_fn) {
+        Logger::error("Failed to JIT compile function");
+        return nullptr;
+    }
+
+    // Create and return compiled block
+    auto block = new CompiledBlock();
+    block->start_pc = start_pc;
+    block->end_pc = end_pc;
+    block->code_ptr = (void*)exec_fn;
+    block->last_used = execution_count;
+    block->contains_branch = is_branch;
+    block->llvm_ir = str;
+
+    return block;
+}
+
+CompiledBlock* EEJIT::find_block(uint32_t pc) {
+    auto it = block_cache.find(pc);
+    if (it != block_cache.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+void EEJIT::evict_oldest_block() {
+    if (lru_queue.empty()) return;
+    uint32_t oldest_pc = lru_queue.front();
+    lru_queue.erase(lru_queue.begin());
+    block_cache.erase(oldest_pc);
+}

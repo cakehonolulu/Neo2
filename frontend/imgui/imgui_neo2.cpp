@@ -1,5 +1,6 @@
 #include <bus/bus.hh>
 #include <ee/ee.hh>
+#include <iop/iop.hh>
 #include <iostream>
 #include <neo2.hh>
 #include <string>
@@ -83,11 +84,16 @@ void ImGui_Neo2::run()
 
     // Main loop
     bool done = false;
-    bool show_ee_disassembler = false;
-    bool show_iop_disassembler = false;
-    bool show_ee_registers = false;
-    bool show_iop_registers = false;
     static bool suppress_exit_notification = false;
+
+    // Backend selection state
+    static bool use_jit_ee = false;
+    static bool use_jit_iop = false;
+
+    // Debug window visibility state
+    static bool show_ee_debug = false;
+    static bool show_iop_debug = false;
+    static bool show_general_debug = true;
 
     ImGuiDebug debug_interface(*this, this->disassembler);
 	std::string bios_file_path;
@@ -136,27 +142,95 @@ void ImGui_Neo2::run()
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {
-                ImGui::MenuItem("EE Disassembly", nullptr, &show_ee_disassembler);
-                ImGui::MenuItem("IOP Disassembly", nullptr, &show_iop_disassembler);
-                ImGui::MenuItem("EE Registers", nullptr, &show_ee_registers);
-                ImGui::MenuItem("IOP Registers", nullptr, &show_iop_registers);
+                ImGui::MenuItem("Show General Debug", nullptr, &show_general_debug);
+                ImGui::MenuItem("Show EE Debug", nullptr, &show_ee_debug);
+                ImGui::MenuItem("Show IOP Debug", nullptr, &show_iop_debug);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Backend")) {
+                if (ImGui::MenuItem("Use JIT for EE", nullptr, &use_jit_ee)) {
+                    this->ee.set_backend(use_jit_ee ? EmulationMode::JIT : EmulationMode::Interpreter);
+                }
+                if (ImGui::MenuItem("Use JIT for IOP", nullptr, &use_jit_iop)) {
+                    this->iop.set_backend(use_jit_iop ? EmulationMode::JIT : EmulationMode::Interpreter);
+                }
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
         }
 
-        // Render disassembly windows if toggled on
-        if (show_ee_disassembler) {
-            debug_interface.render_cpu_disassembly("EE Disassembler", this->ee.pc, &this->ee, debug_interface.use_pseudos_ee, debug_interface.scroll_offset_ee);
+        // Render the general debug window
+        if (show_general_debug) {
+            ImGui::Begin("General Debug");
+
+            if (ImGui::Button("Play")) {
+                // Implement play functionality
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Step")) {
+                if (!Neo2::is_aborted()) {
+                    this->ee.step();
+                    this->iop.step();
+                }
+            }
+
+            ImGui::End();
         }
-        if (show_iop_disassembler) {
-            debug_interface.render_cpu_disassembly("IOP Disassembler", this->iop.pc, &this->iop, debug_interface.use_pseudos_iop, debug_interface.scroll_offset_iop);
+
+        // Render the EE debug window
+        if (show_ee_debug) {
+            ImGui::Begin("EE Debug");
+
+            if (Neo2::is_aborted()) {
+                if (ImGui::Button("Reset")) {
+                    this->ee.reset();
+                    this->iop.reset();
+                    Neo2::reset_aborted();
+                    suppress_exit_notification = false;
+                }
+            }
+
+            if (ImGui::BeginTabBar("EEDebugTabs")) {
+                if (ImGui::BeginTabItem("Disassembly")) {
+                    debug_interface.render_cpu_disassembly("EE Disassembler", this->ee.pc, &this->ee, debug_interface.use_pseudos_ee, debug_interface.scroll_offset_ee);
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Registers")) {
+                    debug_interface.render_cpu_registers("EE Registers", &this->ee);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+
+            ImGui::End();
         }
-        if (show_ee_registers) {
-            debug_interface.render_cpu_registers("EE Registers", &this->ee);
-        }
-        if (show_iop_registers) {
-            debug_interface.render_cpu_registers("IOP Registers", &this->iop);
+
+        // Render the IOP debug window
+        if (show_iop_debug) {
+            ImGui::Begin("IOP Debug");
+
+            if (Neo2::is_aborted()) {
+                if (ImGui::Button("Reset")) {
+                    this->ee.reset();
+                    this->iop.reset();
+                    Neo2::reset_aborted();
+                    suppress_exit_notification = false;
+                }
+            }
+
+            if (ImGui::BeginTabBar("IOPDebugTabs")) {
+                if (ImGui::BeginTabItem("Disassembly")) {
+                    debug_interface.render_cpu_disassembly("IOP Disassembler", this->iop.pc, &this->iop, debug_interface.use_pseudos_iop, debug_interface.scroll_offset_iop);
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Registers")) {
+                    debug_interface.render_cpu_registers("IOP Registers", &this->iop);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+
+            ImGui::End();
         }
 
         // Handle the file dialog for loading BIOS
