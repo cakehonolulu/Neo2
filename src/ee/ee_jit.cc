@@ -177,6 +177,7 @@ CompiledBlock* EEJIT::compile_block(uint32_t start_pc, bool single_instruction) 
         // Check if opcode is a branch or jump
         if (is_branch || single_instruction) {
             end_pc = current_pc_;
+            core->old_pc = current_pc_;
             break;
         }
 
