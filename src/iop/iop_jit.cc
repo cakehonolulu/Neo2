@@ -72,21 +72,22 @@ IOPJIT::~IOPJIT() {
 }
 
 void IOPJIT::initialize_opcode_table() {
-    // Initialize the opcode table
+    opcode_table[0x10].single_handler = &IOPJIT::iop_jit_mfc0;
 }
 
 std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
     bool is_branch = false;
     bool error = false;
 
-    // Decode the opcode and generate IR
-    // This is a simplified example, you should add more opcodes and their handlers
-    switch ((opcode  >> 26) & 63) {
-        default:
-            error = true;
-            Logger::error("Unknown IOP LLVM IR opcode: " + format("0x{:08X}", opcode));
-            Neo2::exit(1, Neo2::Subsystem::IOP);
-            break;
+    uint8_t opcode_index = (opcode >> 26) & 0x3F;
+
+    auto it = opcode_table.find(opcode_index);
+    if (it != opcode_table.end() && it->second.single_handler) {
+        (this->*(it->second.single_handler))(opcode, current_pc, is_branch, core);
+    } else {
+        error = true;
+        Logger::error("Unknown IOP LLVM IR opcode: " + format("0x{:08X}", opcode));
+        Neo2::exit(1, Neo2::Subsystem::IOP);
     }
 
     uint32_t next_pc = current_pc + 4;
@@ -133,7 +134,7 @@ void IOPJIT::execute_opcode(std::uint32_t opcode) {
     auto exec_fn = (int (*)())block->code_ptr;
     Logger::info("Executing block at PC: " + format("0x{:08X}", core->pc));
     int result = exec_fn();
-    Logger::info("Executed block at PC " + format("0x{:08X}", core->pc));
+    Logger::info("Executed block at PC: " + format("0x{:08X}", core->pc));
 }
 
 CompiledBlock* IOPJIT::compile_block(uint32_t start_pc, bool single_instruction) {
@@ -230,4 +231,35 @@ void IOPJIT::evict_oldest_block() {
     uint32_t oldest_pc = lru_queue.front();
     lru_queue.erase(lru_queue.begin());
     block_cache.erase(oldest_pc);
+}
+
+void IOPJIT::iop_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+
+    llvm::Value* cop0_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->cop0_registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* cop0_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), cop0_base, builder->getInt32(rs)));
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* gpr_u32 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+    builder->CreateStore(cop0_value, gpr_u32);
+
+    // Update core->pc and core->next_pc
+    llvm::Value* pc_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&(core->pc))),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* next_pc_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    builder->CreateStore(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), pc_ptr);
+    builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), builder->getInt32(4)), next_pc_ptr);
 }

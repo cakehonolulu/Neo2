@@ -29,9 +29,7 @@ IOP::IOP(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<
             exit(1);
     }
 
-    std::memset(registers, 0, sizeof(registers));
-    pc = 0xBFC00000;
-    next_pc = pc + 4;
+    reset();
 
     for (auto& opcode : opcodes) {
         opcode = [this](IOP* /*cpu*/, std::uint32_t code) { this->unknown_opcode(code); };
@@ -48,9 +46,7 @@ void IOP::run() {
 
 void IOP::step() {
     if (!Neo2::is_aborted()) {
-        Logger::info("IOP Step: PC before step: " + format("0x{:08X}", pc));
         step_();
-        Logger::info("IOP Step: PC after step: " + format("0x{:08X}", pc));
     }
 }
 
@@ -58,11 +54,14 @@ void IOP::reset() {
     pc = 0xBFC00000;
     old_pc = 0xBFC00000;
     next_pc = pc + 4;
+
     std::memset(registers, 0, sizeof(registers));
+    std::memset(cop0_registers, 0, sizeof(cop0_registers));
+
+    cop0_registers[15] = 0x2;
 };
 
 std::uint32_t IOP::fetch_opcode() {
-    Logger::info("IOP Fetch Opcode: PC = " + format("0x{:08X}", pc));
     return bus->read32(pc);
 }
 

@@ -3,6 +3,7 @@
 #include <frontends/imgui/imgui_debug.hh>
 #include <iomanip>
 #include <sstream>
+#include <unordered_map>
 
 #if __has_include(<format>)
 #include <format>
@@ -115,19 +116,72 @@ const std::string mips_register_names[32] = {
     "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"
 };
 
+const std::string cop0_register_names[32] = {
+    "Index", "Random", "EntryLo0", "EntryLo1", "Context", "PageMask", "Wired", "Reserved",
+    "BadVAddr", "Count", "EntryHi", "Compare", "Status", "Cause", "EPC", "PRId",
+    "Config", "LLAddr", "WatchLo", "WatchHi", "XContext", "Reserved", "Reserved", "Reserved",
+    "Reserved", "Reserved", "ECC", "CacheErr", "TagLo", "TagHi", "ErrorEPC", "Reserved"
+};
+
+std::unordered_map<int, uint128_t> previous_ee_registers;
+std::unordered_map<int, std::uint32_t> previous_iop_registers;
+std::unordered_map<int, float> register_change_timers;
+
 void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
     ImGui::Text("Registers");
 
-    if (ImGui::BeginTable("registers_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+    // General-purpose registers table
+    if (ImGui::BeginTable("gpr_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         if (auto* ee = dynamic_cast<EE*>(cpu)) {
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
-                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), ee->registers[i].u32[0]);
+                uint128_t current_value = ee->registers[i];
+                if (previous_ee_registers[i].u128 != current_value.u128) {
+                    previous_ee_registers[i] = current_value;
+                    register_change_timers[i] = 1.0f; // Set timer to 1 second
+                }
+                ImVec4 color = ImVec4(1.0f, 1.0f - register_change_timers[i], 1.0f - register_change_timers[i], 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::Text("%-3s: 0x%016llX%016llX", mips_register_names[i].c_str(), current_value.u64[1], current_value.u64[0]);
+                ImGui::PopStyleColor();
+                if (register_change_timers[i] > 0.0f) {
+                    register_change_timers[i] -= ImGui::GetIO().DeltaTime;
+                }
             }
         } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
-                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), iop->registers[i]);
+                std::uint32_t current_value = iop->registers[i];
+                if (previous_iop_registers[i] != current_value) {
+                    previous_iop_registers[i] = current_value;
+                    register_change_timers[i] = 1.0f; // Set timer to 1 second
+                }
+                ImVec4 color = ImVec4(1.0f, 1.0f - register_change_timers[i], 1.0f - register_change_timers[i], 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), current_value);
+                ImGui::PopStyleColor();
+                if (register_change_timers[i] > 0.0f) {
+                    register_change_timers[i] -= ImGui::GetIO().DeltaTime;
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Separator();
+    ImGui::Text("COP0 Registers");
+
+    // COP0 registers table
+    if (ImGui::BeginTable("cop0_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        if (auto* ee = dynamic_cast<EE*>(cpu)) {
+            for (int i = 0; i < 32; ++i) {
+                ImGui::TableNextColumn();
+                ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), ee->cop0_registers[i]);
+            }
+        } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
+            for (int i = 0; i < 32; ++i) {
+                ImGui::TableNextColumn();
+                ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), iop->cop0_registers[i]);
             }
         }
         ImGui::EndTable();

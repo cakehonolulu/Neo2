@@ -15,7 +15,7 @@ using fmt::format;
 
 EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<EEJIT>(this))
 {
-	Logger::set_subsystem("EE");
+    Logger::set_subsystem("EE");
 
     switch (mode)
     {
@@ -38,9 +38,7 @@ EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<EE
         break;
     }
 
-    std::memset(registers, 0, sizeof(registers));
-    pc = 0xBFC00000;
-    next_pc = pc + 4;
+    reset();
 
     for (auto& opcode : opcodes) {
         opcode = [this](EE* cpu, std::uint32_t code) { this->unknown_opcode(code); };
@@ -70,6 +68,9 @@ void EE::reset() {
     old_pc = 0xBFC00000;
     next_pc = pc + 4;
     std::memset(registers, 0, sizeof(registers));
+    std::memset(cop0_registers, 0, sizeof(cop0_registers));
+
+    cop0_registers[15] = 0x59;
 };
 
 std::uint32_t EE::fetch_opcode()

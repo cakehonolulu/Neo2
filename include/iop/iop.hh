@@ -25,6 +25,7 @@ public:
     void set_backend(EmulationMode mode);
 
     std::uint32_t registers[32];
+    std::uint32_t cop0_registers[32];
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
     std::uint32_t old_pc;
