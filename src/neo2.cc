@@ -23,7 +23,7 @@ int Neo2::exit(int code, Subsystem subsystem) {
 }
 
 Neo2::Neo2(std::shared_ptr<LogBackend> logger)
-    : bus(BusMode::SoftwareFastMem), ee(&bus, EmulationMode::Interpreter), iop(&bus, EmulationMode::Interpreter) {
+    : bus(BusMode::SoftwareFastMem), ee(&bus, EmulationMode::JIT), iop(&bus, EmulationMode::JIT) {
     if (logger) {
         Logger::add_backend(logger);
     }

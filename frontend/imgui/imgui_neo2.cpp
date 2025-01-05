@@ -87,8 +87,8 @@ void ImGui_Neo2::run()
     static bool suppress_exit_notification = false;
 
     // Backend selection state
-    static bool use_jit_ee = false;
-    static bool use_jit_iop = false;
+    static bool use_jit_ee = true; // Default to JIT
+    static bool use_jit_iop = true; // Default to JIT
 
     // Debug window visibility state
     static bool show_ee_debug = false;
