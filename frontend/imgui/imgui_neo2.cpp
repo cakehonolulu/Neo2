@@ -93,10 +93,11 @@ void ImGui_Neo2::run()
     // Debug window visibility state
     static bool show_ee_debug = false;
     static bool show_iop_debug = false;
-    static bool show_general_debug = true;
 
     ImGuiDebug debug_interface(*this, this->disassembler);
 	std::string bios_file_path;
+    std::string status_text = "Idle";
+    ImVec4 status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for Idle
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
     // You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
@@ -142,7 +143,6 @@ void ImGui_Neo2::run()
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {
-                ImGui::MenuItem("Show General Debug", nullptr, &show_general_debug);
                 ImGui::MenuItem("Show EE Debug", nullptr, &show_ee_debug);
                 ImGui::MenuItem("Show IOP Debug", nullptr, &show_iop_debug);
                 ImGui::EndMenu();
@@ -157,24 +157,6 @@ void ImGui_Neo2::run()
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
-        }
-
-        // Render the general debug window
-        if (show_general_debug) {
-            ImGui::Begin("General Debug");
-
-            if (ImGui::Button("Play")) {
-                // Implement play functionality
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Step")) {
-                if (!Neo2::is_aborted()) {
-                    this->ee.step();
-                    this->iop.step();
-                }
-            }
-
-            ImGui::End();
         }
 
         // Render the EE debug window
@@ -284,6 +266,57 @@ void ImGui_Neo2::run()
         if (!Neo2::is_aborted()) {
             suppress_exit_notification = false;
         }
+
+        // Status bar at the bottom
+        ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - ImGui::GetFrameHeight() - 8), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, ImGui::GetFrameHeight()), ImGuiCond_Always);
+        ImGui::Begin("Status Bar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar);
+        ImGui::Text("Status: ");
+        ImGui::SameLine();
+        ImGui::TextColored(status_color, "%s", status_text.c_str());
+        ImGui::SameLine();
+        ImGui::Text("|");
+        ImGui::SameLine();
+
+        // Align buttons with text
+        float text_height = ImGui::GetTextLineHeight();
+        float button_height = ImGui::GetFrameHeight();
+        float vertical_offset = (text_height - button_height) / 2.0f;
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_offset);
+
+        // Remove button background unless selected
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.2f, 0.2f, 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.3f, 0.3f, 0.5f));
+
+        if (ImGui::Button("Play")) {
+            status_text = "Running";
+            status_color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+        }
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImVec2 center = ImVec2(p.x + 15, p.y + 15);
+        draw_list->AddTriangleFilled(ImVec2(center.x - 7, center.y - 7), ImVec2(center.x - 7, center.y + 7), ImVec2(center.x + 7, center.y), IM_COL32(255, 255, 255, 255));
+
+        ImGui::SameLine();
+        
+        text_height = ImGui::GetTextLineHeight();
+        button_height = ImGui::GetFrameHeight();
+        vertical_offset = (text_height - button_height) / 2.0f;
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_offset);
+
+        if (ImGui::Button("Step")) {
+            status_text = "Stepping";
+            status_color = ImVec4(0.0f, 0.0f, 1.0f, 1.0f);
+            if (!Neo2::is_aborted()) {
+                this->ee.step();
+                this->iop.step();
+            }
+            status_text = "Idle";
+            status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::End();
 
         // Rendering
         ImGui::Render();
