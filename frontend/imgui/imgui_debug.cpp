@@ -27,35 +27,26 @@ std::string ImGuiDebug::format_bytes(uint32_t opcode) {
 
 // Render all debug windows
 void ImGuiDebug::render_debug_windows() {
-    render_cpu_disassembly("EE Disassembler", neo2.ee.pc, &neo2.ee, use_pseudos_ee, scroll_offset_ee);
-    render_cpu_disassembly("IOP Disassembler", neo2.iop.pc, &neo2.iop, use_pseudos_iop, scroll_offset_iop);
-    render_cpu_registers("EE Registers", &neo2.ee);
-    render_cpu_registers("IOP Registers", &neo2.iop);
+    if (ImGui::BeginTabBar("DebugTabs")) {
+        if (ImGui::BeginTabItem("EE Debug")) {
+            render_cpu_disassembly("EE Disassembler", neo2.ee.pc, &neo2.ee, use_pseudos_ee, scroll_offset_ee);
+            render_cpu_registers("EE Registers", &neo2.ee);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("IOP Debug")) {
+            render_cpu_disassembly("IOP Disassembler", neo2.iop.pc, &neo2.iop, use_pseudos_iop, scroll_offset_iop);
+            render_cpu_registers("IOP Registers", &neo2.iop);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 }
 
 // Render disassembly for a specific CPU
 void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_pc, CPU* cpu, bool& pseudos, int& scroll_offset) {
-    ImGui::Begin(window_name);
-
     ImGui::Checkbox("Use Pseudocodes", &pseudos);
 
     ImGui::Separator();
-
-    if (ImGui::Button("Step")) {
-        cpu->step();
-    }
-
-    if (Neo2::is_aborted()) {
-        ImGui::SameLine();
-        if (ImGui::Button("Reset")) {
-            if (auto* ee = dynamic_cast<EE*>(cpu)) ee->reset();
-            else if (auto* iop = dynamic_cast<IOP*>(cpu)) iop->reset();
-            Neo2::reset_aborted();
-            error_state_active = false;
-        } else {
-            error_state_active = true;
-        }
-    }
 
     ImGui::BeginChild("DisassemblyView", ImVec2(0, ImGui::GetContentRegionAvail().y), true, ImGuiWindowFlags_HorizontalScrollbar);
     const float line_height = ImGui::GetTextLineHeightWithSpacing();
@@ -65,7 +56,7 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
         scroll_offset += static_cast<int>(ImGui::GetIO().MouseWheel * -1);
     }
 
-    uint32_t display_pc = error_state_active ? (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->old_pc : dynamic_cast<IOP*>(cpu)->old_pc) : base_pc;
+    uint32_t display_pc = Neo2::is_aborted() ? (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->pc : dynamic_cast<IOP*>(cpu)->pc) : base_pc;
     uint32_t current_pc = display_pc + scroll_offset * 4;
 
     for (int i = 0; i < instructions_per_page; ++i) {
@@ -78,12 +69,12 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
             ImGui::Text("0x%08X: <%s>", pc, symbol.c_str());
         }
 
-        uint32_t active_pc = error_state_active
+        uint32_t active_pc = Neo2::is_aborted()
                                  ? (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->old_pc : dynamic_cast<IOP*>(cpu)->old_pc)
                                  : (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->pc : dynamic_cast<IOP*>(cpu)->pc);
 
         bool is_current_instruction = (pc == active_pc);
-        bool is_guilty_instruction = (error_state_active &&
+        bool is_guilty_instruction = (Neo2::is_aborted() &&
                                       Neo2::get_guilty_subsystem() == (dynamic_cast<EE*>(cpu) ? Neo2::Subsystem::EE : Neo2::Subsystem::IOP) &&
                                       active_pc == pc);
 
@@ -115,7 +106,6 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
     }
 
     ImGui::EndChild();
-    ImGui::End();
 }
 
 const std::string mips_register_names[32] = {
@@ -126,18 +116,20 @@ const std::string mips_register_names[32] = {
 };
 
 void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
-    ImGui::Begin(window_name);
     ImGui::Text("Registers");
 
-    if (auto* ee = dynamic_cast<EE*>(cpu)) {
-        for (int i = 0; i < 32; ++i) {
-            ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), ee->registers[i]);
+    if (ImGui::BeginTable("registers_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        if (auto* ee = dynamic_cast<EE*>(cpu)) {
+            for (int i = 0; i < 32; ++i) {
+                ImGui::TableNextColumn();
+                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), ee->registers[i].u32[0]);
+            }
+        } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
+            for (int i = 0; i < 32; ++i) {
+                ImGui::TableNextColumn();
+                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), iop->registers[i]);
+            }
         }
-    } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
-        for (int i = 0; i < 32; ++i) {
-            ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), iop->registers[i]);
-        }
+        ImGui::EndTable();
     }
-
-    ImGui::End();
 }

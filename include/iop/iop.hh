@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <cpu/cpu.hh>
 #include <iop/iop_interpreter.hh>
+#include <iop/iop_jit.hh>
 #include <functional>
+#include <memory>
 
 class IOP : public CPU
 {
@@ -20,6 +22,7 @@ public:
     std::uint32_t fetch_opcode() override;
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
+    void set_backend(EmulationMode mode);
 
     std::uint32_t registers[32];
     std::uint32_t pc = 0xBFC00000;
@@ -27,4 +30,7 @@ public:
     std::uint32_t old_pc;
 
     std::function<void(IOP*, std::uint32_t)> opcodes[256];
+
+private:
+    std::unique_ptr<IOPJIT> jit; // Ensure this member is declared
 };

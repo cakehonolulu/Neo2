@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <ee/ee_interpreter.hh>
 #include <functional>
+#include <memory>
+#include <ee/ee_jit.hh>
 
 union uint128_t {
     unsigned __int128 u128;
@@ -17,6 +19,8 @@ union uint128_t {
 class EE : public CPU
 {
   private:
+    std::unique_ptr<EEJIT> jit;
+
   public:
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
@@ -29,6 +33,7 @@ class EE : public CPU
     std::uint32_t fetch_opcode() override;
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
+    void set_backend(EmulationMode mode);
 
     // 104 MIPS III/IV Instructions
     // 111 EE-Specific (SIMD-Like) Instructions

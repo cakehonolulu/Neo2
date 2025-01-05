@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(Neo2 LANGUAGES CXX)
+project(Neo2 LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -15,6 +15,10 @@ endif()
 
 add_compile_options(-g -Wall -Wextra -std=c++2b)
 
+find_package(LLVM REQUIRED CONFIG)
+include_directories(${LLVM_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
+
 add_executable(neo2)
 
 add_subdirectory(src)
@@ -22,3 +26,4 @@ add_subdirectory(src)
 add_subdirectory(frontend)
 
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(neo2 PRIVATE LLVM)

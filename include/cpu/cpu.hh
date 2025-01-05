@@ -8,7 +8,17 @@
 enum class EmulationMode {
     Interpreter,
     CachedInterpreter,
-    DynamicRecompiler
+    JIT
+};
+
+class CompiledBlock {
+public:
+    uint32_t start_pc;
+    uint32_t end_pc;
+    void* code_ptr;
+    uint64_t last_used;
+    bool contains_branch;
+    std::string llvm_ir;
 };
 
 class CPU {
