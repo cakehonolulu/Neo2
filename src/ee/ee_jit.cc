@@ -72,6 +72,7 @@ EEJIT::~EEJIT() {
 }
 
 void EEJIT::initialize_opcode_table() {
+    opcode_table[0x00].funct3_map[0x00] = &EEJIT::ee_jit_sll; // SLL opcode
     opcode_table[0x10].single_handler = &EEJIT::ee_jit_mfc0;
 }
 
@@ -80,10 +81,20 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
     bool error = false;
 
     uint8_t opcode_index = (opcode >> 26) & 0x3F;
+    uint8_t funct3 = opcode & 0x3F;
 
     auto it = opcode_table.find(opcode_index);
-    if (it != opcode_table.end() && it->second.single_handler) {
-        (this->*(it->second.single_handler))(opcode, current_pc, is_branch, core);
+    if (it != opcode_table.end()) {
+        auto funct3_it = it->second.funct3_map.find(funct3);
+        if (funct3_it != it->second.funct3_map.end()) {
+            (this->*(funct3_it->second))(opcode, current_pc, is_branch, core);
+        } else if (it->second.single_handler) {
+            (this->*(it->second.single_handler))(opcode, current_pc, is_branch, core);
+        } else {
+            error = true;
+            Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
+            Neo2::exit(1, Neo2::Subsystem::EE);
+        }
     } else {
         error = true;
         Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
@@ -249,6 +260,39 @@ void EEJIT::ee_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     );
     llvm::Value* gpr_u32_0 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, {builder->getInt32(rt * 4)});
     builder->CreateStore(cop0_value, gpr_u32_0);
+
+    // Update core->pc and core->next_pc
+    llvm::Value* pc_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&(core->pc))),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* next_pc_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    builder->CreateStore(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), pc_ptr);
+    builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), builder->getInt32(4)), next_pc_ptr);
+
+    current_pc += 4;
+}
+
+void EEJIT::ee_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t sa = (opcode >> 6) & 0x1F;
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)));
+    llvm::Value* shifted_value = builder->CreateShl(rt_value, builder->getInt32(sa));
+    llvm::Value* sign_extended_value = builder->CreateSExt(shifted_value, builder->getInt64Ty());
+
+    llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rd * 2));
+    builder->CreateStore(sign_extended_value, rd_ptr);
 
     // Update core->pc and core->next_pc
     llvm::Value* pc_ptr = builder->CreateIntToPtr(
