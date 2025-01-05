@@ -49,4 +49,6 @@ private:
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
 
     void initialize_opcode_table();
+
+    void iop_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };
