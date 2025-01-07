@@ -57,7 +57,7 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
         scroll_offset += static_cast<int>(ImGui::GetIO().MouseWheel * -1);
     }
 
-    uint32_t display_pc = Neo2::is_aborted() ? (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->old_pc : dynamic_cast<IOP*>(cpu)->old_pc) : base_pc;
+    uint32_t display_pc = base_pc;
     uint32_t current_pc = display_pc + scroll_offset * 4;
 
     for (int i = 0; i < instructions_per_page; ++i) {
@@ -70,9 +70,7 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
             ImGui::Text("0x%08X: <%s>", pc, symbol.c_str());
         }
 
-        uint32_t active_pc = Neo2::is_aborted()
-                                 ? (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->old_pc : dynamic_cast<IOP*>(cpu)->old_pc)
-                                 : (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->pc : dynamic_cast<IOP*>(cpu)->pc);
+        uint32_t active_pc = (dynamic_cast<EE*>(cpu) ? dynamic_cast<EE*>(cpu)->pc : dynamic_cast<IOP*>(cpu)->pc);
 
         bool is_current_instruction = (pc == active_pc);
         bool is_guilty_instruction = (Neo2::is_aborted() &&

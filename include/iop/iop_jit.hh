@@ -9,6 +9,21 @@
 #include <unordered_map>
 #include <vector>
 
+#define EMIT_IOP_UPDATE_PC(core, builder, current_pc) \
+    do { \
+        llvm::Value* pc_ptr = builder->CreateIntToPtr( \
+            builder->getInt64(reinterpret_cast<uint64_t>(&(core->pc))), \
+            llvm::PointerType::getUnqual(builder->getInt32Ty()) \
+        ); \
+        llvm::Value* next_pc_ptr = builder->CreateIntToPtr( \
+            builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))), \
+            llvm::PointerType::getUnqual(builder->getInt32Ty()) \
+        ); \
+        builder->CreateStore(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), pc_ptr); \
+        builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), builder->getInt32(4)), next_pc_ptr); \
+        current_pc += 4; \
+    } while (0)
+
 class IOP;
 
 class IOPJIT {
