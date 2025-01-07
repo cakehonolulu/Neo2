@@ -84,8 +84,17 @@ void ImGuiDebug::render_cpu_disassembly(const char* window_name, uint32_t base_p
         ImGui::PushStyleColor(ImGuiCol_Text, text_color);
 
         std::string mnemonic_line = data.mnemonic;
+        bool first_operand = true;
         for (const auto& operand : data.operands) {
-            mnemonic_line += (mnemonic_line.empty() ? "" : ", ") + operand.text;
+            if (!first_operand) {
+                mnemonic_line += ", ";
+            }
+            else
+            {
+                mnemonic_line += " ";
+            }
+            mnemonic_line += operand.text;
+            first_operand = false;
         }
 
         ImGui::Text("0x%08X: %-20s", pc, mnemonic_line.c_str());
@@ -123,7 +132,8 @@ const std::string cop0_register_names[32] = {
 
 std::unordered_map<int, uint128_t> previous_ee_registers;
 std::unordered_map<int, std::uint32_t> previous_iop_registers;
-std::unordered_map<int, float> register_change_timers;
+std::unordered_map<int, float> ee_register_change_timers;
+std::unordered_map<int, float> iop_register_change_timers;
 
 void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
     ImGui::Text("Registers");
@@ -136,14 +146,14 @@ void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
                 uint128_t current_value = ee->registers[i];
                 if (previous_ee_registers[i].u128 != current_value.u128) {
                     previous_ee_registers[i] = current_value;
-                    register_change_timers[i] = 1.0f; // Set timer to 1 second
+                    ee_register_change_timers[i] = 1.0f; // Set timer to 1 second
                 }
-                ImVec4 color = ImVec4(1.0f, 1.0f - register_change_timers[i], 1.0f - register_change_timers[i], 1.0f);
+                ImVec4 color = ImVec4(1.0f, 1.0f - ee_register_change_timers[i], 1.0f - ee_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
                 ImGui::Text("%-3s: 0x%016llX%016llX", mips_register_names[i].c_str(), current_value.u64[1], current_value.u64[0]);
                 ImGui::PopStyleColor();
-                if (register_change_timers[i] > 0.0f) {
-                    register_change_timers[i] -= ImGui::GetIO().DeltaTime;
+                if (ee_register_change_timers[i] > 0.0f) {
+                    ee_register_change_timers[i] -= ImGui::GetIO().DeltaTime;
                 }
             }
         } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
@@ -152,14 +162,14 @@ void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
                 std::uint32_t current_value = iop->registers[i];
                 if (previous_iop_registers[i] != current_value) {
                     previous_iop_registers[i] = current_value;
-                    register_change_timers[i] = 1.0f; // Set timer to 1 second
+                    iop_register_change_timers[i] = 1.0f; // Set timer to 1 second
                 }
-                ImVec4 color = ImVec4(1.0f, 1.0f - register_change_timers[i], 1.0f - register_change_timers[i], 1.0f);
+                ImVec4 color = ImVec4(1.0f, 1.0f - iop_register_change_timers[i], 1.0f - iop_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
                 ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), current_value);
                 ImGui::PopStyleColor();
-                if (register_change_timers[i] > 0.0f) {
-                    register_change_timers[i] -= ImGui::GetIO().DeltaTime;
+                if (iop_register_change_timers[i] > 0.0f) {
+                    iop_register_change_timers[i] -= ImGui::GetIO().DeltaTime;
                 }
             }
         }

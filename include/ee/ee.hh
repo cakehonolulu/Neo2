@@ -18,9 +18,6 @@ union uint128_t {
 
 class EE : public CPU
 {
-  private:
-    std::unique_ptr<EEJIT> jit;
-
   public:
     EE(Bus *bus_, EmulationMode mode = EmulationMode::Interpreter);
     ~EE();
@@ -44,4 +41,9 @@ class EE : public CPU
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
+    bool branching = false;
+    std::uint32_t branch_dest;
+    
+  private:
+    std::unique_ptr<EEJIT> jit;
 };
