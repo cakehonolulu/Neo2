@@ -17,7 +17,6 @@ void iop_interpreter_setup(IOP *iop)
 void iop_step_interpreter(IOP *iop)
 {
     std::uint32_t opcode = iop->fetch_opcode();
-    iop->old_pc = iop->pc;
     iop->pc = iop->next_pc;
     iop->next_pc += 4;
     iop->parse_opcode(opcode);

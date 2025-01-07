@@ -44,5 +44,4 @@ class EE : public CPU
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
-    std::uint32_t old_pc;
 };

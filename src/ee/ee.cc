@@ -65,7 +65,6 @@ void EE::step() {
 
 void EE::reset() {
     pc = 0xBFC00000;
-    old_pc = 0xBFC00000;
     next_pc = pc + 4;
     std::memset(registers, 0, sizeof(registers));
     std::memset(cop0_registers, 0, sizeof(cop0_registers));

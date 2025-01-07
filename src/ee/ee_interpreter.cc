@@ -18,7 +18,6 @@ void ee_interpreter_setup(EE *ee)
 void ee_step_interpreter(EE *ee)
 {
     std::uint32_t opcode = ee->fetch_opcode();
-    ee->old_pc = ee->pc;
     ee->pc = ee->next_pc;
     ee->next_pc += 4;
     ee->parse_opcode(opcode);
