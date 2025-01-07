@@ -19,9 +19,20 @@
             builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))), \
             llvm::PointerType::getUnqual(builder->getInt32Ty()) \
         ); \
-        builder->CreateStore(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), pc_ptr); \
-        builder->CreateStore(builder->CreateAdd(builder->CreateLoad(builder->getInt32Ty(), next_pc_ptr), builder->getInt32(4)), next_pc_ptr); \
-        current_pc += 4; \
+        llvm::Value* branching_ptr = builder->CreateIntToPtr( \
+            builder->getInt64(reinterpret_cast<uint64_t>(&(core->branching))), \
+            llvm::PointerType::getUnqual(builder->getInt1Ty()) \
+        ); \
+        llvm::Value* branch_dest_ptr = builder->CreateIntToPtr( \
+            builder->getInt64(reinterpret_cast<uint64_t>(&(core->branch_dest))), \
+            llvm::PointerType::getUnqual(builder->getInt32Ty()) \
+        ); \
+        llvm::Value* branching = builder->CreateLoad(builder->getInt1Ty(), branching_ptr); \
+        llvm::Value* branch_dest = builder->CreateLoad(builder->getInt32Ty(), branch_dest_ptr); \
+        llvm::Value* new_pc = builder->CreateSelect(branching, branch_dest, builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4))); \
+        builder->CreateStore(new_pc, pc_ptr); \
+        builder->CreateStore(builder->CreateAdd(new_pc, builder->getInt32(4)), next_pc_ptr); \
+        builder->CreateStore(builder->getInt1(false), branching_ptr); \
     } while (0)
 
 class IOP;
@@ -67,4 +78,6 @@ private:
 
     void iop_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };

@@ -1,12 +1,11 @@
 #pragma once
 
+#include "iop/iop_jit.hh"
 #include <bus/bus.hh>
 #include <cstdint>
 #include <cpu/cpu.hh>
 #include <iop/iop_interpreter.hh>
-#include <iop/iop_jit.hh>
 #include <functional>
-#include <memory>
 
 class IOP : public CPU
 {
@@ -28,9 +27,12 @@ public:
     std::uint32_t cop0_registers[32];
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
+    bool branching = false;
+    std::uint32_t branch_dest;
 
     std::function<void(IOP*, std::uint32_t)> opcodes[256];
 
-private:
-    std::unique_ptr<IOPJIT> jit; // Ensure this member is declared
+
+  private:
+    std::unique_ptr<IOPJIT> jit;
 };
