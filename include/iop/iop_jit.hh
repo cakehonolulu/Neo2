@@ -80,4 +80,8 @@ private:
     void iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };
