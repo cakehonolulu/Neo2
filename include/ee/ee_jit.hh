@@ -80,4 +80,7 @@ private:
     void ee_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };

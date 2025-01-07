@@ -76,6 +76,10 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x10].single_handler = &EEJIT::ee_jit_mfc0;
     opcode_table[0x0A].single_handler = &EEJIT::ee_jit_slti; // SLTI opcode
     opcode_table[0x05].single_handler = &EEJIT::ee_jit_bne; // BNE opcode
+    opcode_table[0x0F].single_handler = &EEJIT::ee_jit_lui; // LUI opcode
+    opcode_table[0x0D].single_handler = &EEJIT::ee_jit_ori; // ORI opcode
+    opcode_table[0x08].single_handler = &EEJIT::ee_jit_jr; // JR opcode
+    opcode_table[0x00].funct3_map[0x08] = &EEJIT::ee_jit_jr; // JR opcode
 }
 
 std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -334,6 +338,60 @@ void EEJIT::ee_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_bran
 
     // Continue block
     builder->SetInsertPoint(continue_block);
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+
+    is_branch = true;
+}
+
+void EEJIT::ee_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    llvm::Value* imm_value = builder->CreateShl(builder->getInt32(imm), builder->getInt32(16));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    builder->CreateStore(imm_value, rt_ptr);
+
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    uint16_t imm = static_cast<uint16_t>(opcode & 0xFFFF);
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* imm_value = builder->getInt32(imm);
+    llvm::Value* result = builder->CreateOr(rs_value, imm_value);
+
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    builder->CreateStore(result, rt_ptr);
+
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rs = (opcode >> 21) & 0x1F;
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+
+    builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
+    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 
     is_branch = true;
