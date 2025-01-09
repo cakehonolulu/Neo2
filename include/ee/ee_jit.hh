@@ -80,7 +80,9 @@ private:
     void initialize_opcode_table();
 
     void ee_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mtc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_sync(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
