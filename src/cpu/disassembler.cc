@@ -47,6 +47,7 @@ void Disassembler::initialize_opcode_table() {
     // Extended opcode table (e.g., special opcodes when function == 0x00)
     extended_opcodes[0x00] = OpcodeEntry("sll", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
+    extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
     extended_opcodes[0x20] = OpcodeEntry("add", InstructionType::RType);
     extended_opcodes[0x21] = OpcodeEntry("addu", InstructionType::RType);
     extended_opcodes[0x22] = OpcodeEntry("sub", InstructionType::RType);
@@ -157,8 +158,8 @@ DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode
                 uint8_t rt = (opcode >> 16) & 0x1F;
                 int16_t imm = opcode & 0xFFFF;
 
-                data.operands.push_back({"$" + mips_register_names[rs], rs});
                 data.operands.push_back({"$" + mips_register_names[rt], rt});
+                data.operands.push_back({"$" + mips_register_names[rs], rs});
                 data.operands.push_back({format("{:X}", static_cast<uint32_t>(imm)), static_cast<uint32_t>(imm)});
                 break;
             }
@@ -202,14 +203,16 @@ DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode
         if (extended_opcodes.contains(subfunction)) {
             data = DisassemblyData(pc, extended_opcodes[subfunction]);
 
-            // Operand processing for extended R-type instructions
-            uint8_t rd = (opcode >> 11) & 0x1F;
-            uint8_t rs = (opcode >> 21) & 0x1F;
-            uint8_t rt = (opcode >> 16) & 0x1F;
+            if (subfunction != 0x0F) {
+                // Operand processing for extended R-type instructions
+                uint8_t rd = (opcode >> 11) & 0x1F;
+                uint8_t rs = (opcode >> 21) & 0x1F;
+                uint8_t rt = (opcode >> 16) & 0x1F;
 
-            data.operands.push_back({"$" + mips_register_names[rd], rd});
-            data.operands.push_back({"$" + mips_register_names[rs], rs});
-            data.operands.push_back({"$" + mips_register_names[rt], rt});
+                data.operands.push_back({"$" + mips_register_names[rd], rd});
+                data.operands.push_back({"$" + mips_register_names[rs], rs});
+                data.operands.push_back({"$" + mips_register_names[rt], rt});
+            }
         } else {
             data.mnemonic = format("UNKNOWN EXT (subfunction 0x{:X})", subfunction);
         }

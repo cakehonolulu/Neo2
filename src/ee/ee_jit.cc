@@ -73,13 +73,14 @@ EEJIT::~EEJIT() {
 
 void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = &EEJIT::ee_jit_sll; // SLL opcode
-    opcode_table[0x10].single_handler = &EEJIT::ee_jit_mfc0;
-    opcode_table[0x0A].single_handler = &EEJIT::ee_jit_slti; // SLTI opcode
-    opcode_table[0x05].single_handler = &EEJIT::ee_jit_bne; // BNE opcode
-    opcode_table[0x0F].single_handler = &EEJIT::ee_jit_lui; // LUI opcode
-    opcode_table[0x0D].single_handler = &EEJIT::ee_jit_ori; // ORI opcode
-    opcode_table[0x08].single_handler = &EEJIT::ee_jit_jr; // JR opcode
     opcode_table[0x00].funct3_map[0x08] = &EEJIT::ee_jit_jr; // JR opcode
+    opcode_table[0x00].funct3_map[0x0F] = &EEJIT::ee_jit_sync; // SYNC opcode
+
+    opcode_table[0x05].single_handler = &EEJIT::ee_jit_bne; // BNE opcode
+    opcode_table[0x10].rs_map[0x00] = &EEJIT::ee_jit_mfc0; // MFC0 opcode
+    opcode_table[0x0A].single_handler = &EEJIT::ee_jit_slti; // SLTI opcode
+    opcode_table[0x0D].single_handler = &EEJIT::ee_jit_ori; // ORI opcode
+    opcode_table[0x0F].single_handler = &EEJIT::ee_jit_lui; // LUI opcode
 }
 
 std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -87,27 +88,35 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
     bool error = false;
 
     uint8_t opcode_index = (opcode >> 26) & 0x3F;
-    uint8_t funct3 = opcode & 0x3F;
+    uint8_t funct_or_rs = (opcode_index == 0x10) ? ((opcode >> 21) & 0x1F) : (opcode & 0x3F);
 
     auto it = opcode_table.find(opcode_index);
     if (it != opcode_table.end()) {
-        auto funct3_it = it->second.funct3_map.find(funct3);
-        if (funct3_it != it->second.funct3_map.end()) {
-            (this->*(funct3_it->second))(opcode, current_pc, is_branch, core);
-        } else if (it->second.single_handler) {
-            (this->*(it->second.single_handler))(opcode, current_pc, is_branch, core);
+        OpcodeHandler handler = nullptr;
+
+        if (opcode_index == 0x10) {
+            auto rs_it = it->second.rs_map.find(funct_or_rs);
+            if (rs_it != it->second.rs_map.end()) handler = rs_it->second;
         } else {
-            error = true;
-            Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
-            Neo2::exit(1, Neo2::Subsystem::EE);
+            auto funct_it = it->second.funct3_map.find(funct_or_rs);
+            handler = (funct_it != it->second.funct3_map.end()) ? funct_it->second : it->second.single_handler;
+        }
+
+        if (handler) {
+            (this->*(handler))(opcode, current_pc, is_branch, core);
+        } else {
+            base_error_handler(opcode);
         }
     } else {
-        error = true;
-        Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
-        Neo2::exit(1, Neo2::Subsystem::EE);
+        base_error_handler(opcode);
     }
 
     return {is_branch, current_pc, error};
+}
+
+void EEJIT::base_error_handler(uint32_t opcode) {
+    Logger::error("Unknown EE LLVM IR opcode: " + format("0x{:08X}", opcode));
+    Neo2::exit(1, Neo2::Subsystem::EE);
 }
 
 void EEJIT::step() {
@@ -395,4 +404,9 @@ void EEJIT::ee_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 
     is_branch = true;
+}
+
+void EEJIT::ee_jit_sync(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // DUMMY OPCODE
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }

@@ -69,10 +69,13 @@ private:
 
     struct OpcodeHandlerEntry {
         std::unordered_map<std::uint8_t, OpcodeHandler> funct3_map;
+        std::unordered_map<std::uint8_t, OpcodeHandler> rs_map;
         OpcodeHandler single_handler = nullptr;
     };
 
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
+
+    void base_error_handler(uint32_t opcode);
 
     void initialize_opcode_table();
 

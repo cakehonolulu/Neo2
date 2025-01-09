@@ -69,15 +69,19 @@ private:
 
     struct OpcodeHandlerEntry {
         std::unordered_map<std::uint8_t, OpcodeHandler> funct3_map;
+        std::unordered_map<std::uint8_t, OpcodeHandler> rs_map;
         OpcodeHandler single_handler = nullptr;
     };
 
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
 
+    void base_error_handler(uint32_t opcode);
+
     void initialize_opcode_table();
 
     void ee_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sync(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
