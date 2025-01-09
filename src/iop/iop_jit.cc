@@ -252,19 +252,19 @@ void IOPJIT::evict_oldest_block() {
 
 void IOPJIT::iop_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
     uint8_t rd = (opcode >> 11) & 0x1F;
-    uint8_t rs = (opcode >> 21) & 0x1F;
+    uint8_t rt = (opcode >> 16) & 0x1F;
 
     llvm::Value* cop0_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->cop0_registers)),
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
-    llvm::Value* cop0_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), cop0_base, builder->getInt32(rs)));
+    llvm::Value* cop0_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), cop0_base, builder->getInt32(rd)));
 
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
-    llvm::Value* gpr_u32 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+    llvm::Value* gpr_u32 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(cop0_value, gpr_u32);
 
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
