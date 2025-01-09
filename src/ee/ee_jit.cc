@@ -77,7 +77,9 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x0F] = &EEJIT::ee_jit_sync; // SYNC opcode
 
     opcode_table[0x05].single_handler = &EEJIT::ee_jit_bne; // BNE opcode
+    opcode_table[0x09].single_handler = &EEJIT::ee_jit_addiu; // ADDIU opcode
     opcode_table[0x10].rs_map[0x00] = &EEJIT::ee_jit_mfc0; // MFC0 opcode
+    opcode_table[0x10].rs_map[0x04] = &EEJIT::ee_jit_mtc0; // MTC0 opcode
     opcode_table[0x0A].single_handler = &EEJIT::ee_jit_slti; // SLTI opcode
     opcode_table[0x0D].single_handler = &EEJIT::ee_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &EEJIT::ee_jit_lui; // LUI opcode
@@ -275,6 +277,32 @@ void EEJIT::ee_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     llvm::Value* gpr_u32_0 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, {builder->getInt32(rt * 4)});
     builder->CreateStore(cop0_value, gpr_u32_0);
 
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_mtc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;
+    uint8_t rt = (opcode >> 16) & 0x1F;
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr( builder->getInt64(reinterpret_cast<uint64_t>(core->registers)), llvm::PointerType::getUnqual(builder->getInt32Ty()) );
+    llvm::Value* gpr_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)));
+    llvm::Value* cop0_base = builder->CreateIntToPtr( builder->getInt64(reinterpret_cast<uint64_t>(core->cop0_registers)), llvm::PointerType::getUnqual(builder->getInt32Ty()) );
+    llvm::Value* cop0_u32_0 = builder->CreateGEP(builder->getInt32Ty(), cop0_base, builder->getInt32(rd));
+    builder->CreateStore(gpr_value, cop0_u32_0);
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF); // Sign-extend immediate value
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)), llvm::PointerType::getUnqual(builder->getInt32Ty()));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* imm_value = builder->getInt32(imm);
+    llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    builder->CreateStore(result, rt_ptr);
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
 
