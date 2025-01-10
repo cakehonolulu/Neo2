@@ -41,6 +41,7 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x09] = OpcodeEntry("addiu", InstructionType::IType);
     opcode_mnemonics[0x0A] = OpcodeEntry("slti", InstructionType::IType);
     opcode_mnemonics[0x0B] = OpcodeEntry("sltiu", InstructionType::IType);
+    opcode_mnemonics[0x0C] = OpcodeEntry("andi", InstructionType::RType);
     opcode_mnemonics[0x0D] = OpcodeEntry("ori", InstructionType::IType);
     opcode_mnemonics[0x0F] = OpcodeEntry("lui", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);

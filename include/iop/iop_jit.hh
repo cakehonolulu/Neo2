@@ -85,11 +85,14 @@ private:
     void iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_andi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };
