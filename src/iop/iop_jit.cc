@@ -285,10 +285,10 @@ void IOPJIT::iop_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_
     int16_t imm = static_cast<int16_t>(opcode & 0xFFFF); // Sign-extend immediate value
 
     llvm::Value* gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)), llvm::PointerType::getUnqual(builder->getInt32Ty()));
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
     llvm::Value* imm_value = builder->getInt32(imm);
     llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result, rt_ptr);
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
@@ -303,11 +303,11 @@ void IOPJIT::iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)));
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
     llvm::Value* shifted_value = builder->CreateShl(rt_value, builder->getInt32(sa));
     llvm::Value* sign_extended_value = builder->CreateSExt(shifted_value, builder->getInt64Ty());
 
-    llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rd * 2));
+    llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rd));
     builder->CreateStore(sign_extended_value, rd_ptr);
 
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
@@ -323,12 +323,12 @@ void IOPJIT::iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_b
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
     llvm::Value* imm_value = builder->CreateSExt(builder->getInt32(imm), builder->getInt32Ty());
     llvm::Value* result = builder->CreateICmpSLT(rs_value, imm_value);
     llvm::Value* result_int = builder->CreateZExt(result, builder->getInt32Ty());
 
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result_int, rt_ptr);
 
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
@@ -345,8 +345,8 @@ void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
-    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
     llvm::Value* condition = builder->CreateICmpNE(rs_value, rt_value);
 
     llvm::BasicBlock* branch_block = llvm::BasicBlock::Create(*context, "branch", builder->GetInsertBlock()->getParent());
@@ -411,7 +411,7 @@ void IOPJIT::iop_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
     );
 
     llvm::Value* imm_value = builder->CreateShl(builder->getInt32(imm), builder->getInt32(16));
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(imm_value, rt_ptr);
 
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
@@ -427,11 +427,11 @@ void IOPJIT::iop_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
     llvm::Value* imm_value = builder->getInt32(imm);
     llvm::Value* result = builder->CreateOr(rs_value, imm_value);
 
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result, rt_ptr);
 
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
@@ -445,7 +445,7 @@ void IOPJIT::iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
 
     builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
     builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
