@@ -267,7 +267,9 @@ void ImGui_Neo2::run()
             suppress_exit_notification = false;
         }
 
-        // Status bar at the bottom
+        // Add a flag to track if the system is running
+        static bool is_running = false;
+
         ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - ImGui::GetFrameHeight() - 8), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, ImGui::GetFrameHeight()), ImGuiCond_Always);
         ImGui::Begin("Status Bar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar);
@@ -290,16 +292,39 @@ void ImGui_Neo2::run()
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.3f, 0.3f, 0.5f));
 
         if (ImGui::Button("Play")) {
+            // When clicking Play, set the status to "Running" and disable the Step button
             status_text = "Running";
             status_color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+
+            // Set is_running to true to enter the loop
+            is_running = true;
+
+            // While running, call step in a loop until is_aborted() is true
+            while (!Neo2::is_aborted()) {
+                this->ee.step();
+                this->iop.step();
+            }
+
+            // Once the loop finishes, change the status back to Idle
+            status_text = "Idle";
+            status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
+
+            // Reset is_running after stopping
+            is_running = false;
         }
+
+        // Disable the Step button when running
+        if (is_running) {
+            ImGui::BeginDisabled();  // Disables any widget between this call and EndDisabled
+        }
+
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         ImVec2 p = ImGui::GetCursorScreenPos();
         ImVec2 center = ImVec2(p.x + 15, p.y + 15);
         draw_list->AddTriangleFilled(ImVec2(center.x - 7, center.y - 7), ImVec2(center.x - 7, center.y + 7), ImVec2(center.x + 7, center.y), IM_COL32(255, 255, 255, 255));
 
         ImGui::SameLine();
-        
+
         text_height = ImGui::GetTextLineHeight();
         button_height = ImGui::GetFrameHeight();
         vertical_offset = (text_height - button_height) / 2.0f;
@@ -315,6 +340,11 @@ void ImGui_Neo2::run()
             status_text = "Idle";
             status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
         }
+
+        if (is_running) {
+            ImGui::EndDisabled();  // Re-enable widgets after this call
+        }
+
         ImGui::PopStyleColor(3);
         ImGui::End();
 
