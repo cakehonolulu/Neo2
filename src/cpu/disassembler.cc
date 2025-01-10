@@ -44,6 +44,7 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x0D] = OpcodeEntry("ori", InstructionType::IType);
     opcode_mnemonics[0x0F] = OpcodeEntry("lui", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);
+    opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
 
     // Extended opcode table (e.g., special opcodes when function == 0x00)
     extended_opcodes[0x00] = OpcodeEntry("sll", InstructionType::RType);
