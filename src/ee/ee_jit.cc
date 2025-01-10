@@ -143,9 +143,11 @@ void EEJIT::step() {
 }
 
 void EEJIT::run() {
-    std::uint32_t opcode = core->fetch_opcode();
-    execute_opcode(opcode);
-    core->registers[0].u128 = 0;
+    while (!Neo2::is_aborted()) {
+        std::uint32_t opcode = core->fetch_opcode();
+        execute_opcode(opcode);
+        core->registers[0].u32[0] = 0;
+    }
 }
 
 void EEJIT::execute_opcode(std::uint32_t opcode) {

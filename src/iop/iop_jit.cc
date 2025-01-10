@@ -143,9 +143,11 @@ void IOPJIT::step() {
 }
 
 void IOPJIT::run() {
-    std::uint32_t opcode = core->fetch_opcode();
-    execute_opcode(opcode);
-    core->registers[0] = 0;
+    while (!Neo2::is_aborted()) {
+        std::uint32_t opcode = core->fetch_opcode();
+        execute_opcode(opcode);
+        core->registers[0] = 0;
+    }
 }
 
 void IOPJIT::execute_opcode(std::uint32_t opcode) {
