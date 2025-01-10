@@ -50,6 +50,11 @@ IOPJIT::IOPJIT(IOP* core) : core(core) {
 
     Logger::info("JIT initialization successful");
     initialize_opcode_table();
+
+    iop_read32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty()}, false);
+    iop_read32 = llvm::Function::Create(
+    iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", module.get());;
+
     ready = true;
 }
 
@@ -82,6 +87,11 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x0A].single_handler = &IOPJIT::iop_jit_slti; // SLTI opcode
     opcode_table[0x0D].single_handler = &IOPJIT::iop_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui; // LUI opcode
+    opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw; // LW opcode
+}
+
+extern "C" uint32_t iop_read32(IOP* core, uint32_t addr) {
+    return core->bus->read32(addr);
 }
 
 std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -334,7 +344,6 @@ void IOPJIT::iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_b
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
-
 void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
     uint8_t rs = (opcode >> 21) & 0x1F;
     uint8_t rt = (opcode >> 16) & 0x1F;
@@ -453,4 +462,29 @@ void IOPJIT::iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 
     is_branch = true;
+}
+
+void IOPJIT::iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+
+    uint32_t addr = core->registers[rs] + offset;
+
+    llvm::Value* core_value = llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core));
+
+    // Create the arguments for read32
+    llvm::Value* addr_value = llvm::ConstantInt::get(builder->getInt32Ty(), addr);
+
+    // Call read32: read32(core, addr)
+    llvm::Value* value = builder->CreateCall(iop_read32, {core_value, addr_value});
+
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* gpr_u32_0 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, {builder->getInt32(rt)});
+    builder->CreateStore(value, gpr_u32_0);
+
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

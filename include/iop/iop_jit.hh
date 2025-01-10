@@ -64,6 +64,8 @@ private:
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
+    llvm::FunctionType* iop_read32_type;
+    llvm::Function* iop_read32;
 
     typedef void (IOPJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, IOP*);
 
@@ -88,4 +90,5 @@ private:
     void iop_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };
