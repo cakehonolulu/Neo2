@@ -110,6 +110,9 @@ void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
     else if (address == 0x1000F500) {
         // NOP
     }
+    else if (address == 0x1F801010) {
+        // NOP
+    }
     else
     {
         std::string msg;
