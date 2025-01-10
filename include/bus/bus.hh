@@ -24,7 +24,9 @@ class Bus
     uintptr_t *address_space_w;
 
     std::function<std::uint32_t(std::uint32_t)> read32;
+    std::function<void(std::uint32_t, std::uint32_t)> write32;
     void load_bios(const std::string &bios_path);
     void fmem_init();
     std::uint32_t fmem_read32(uint32_t address);
+    void fmem_write32(uint32_t address, uint32_t value);
 };
