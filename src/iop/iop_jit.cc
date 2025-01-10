@@ -82,6 +82,7 @@ void IOPJIT::initialize_opcode_table() {
 
     opcode_table[0x04].single_handler = &IOPJIT::iop_jit_beq; // BEQ opcode
     opcode_table[0x05].single_handler = &IOPJIT::iop_jit_bne; // BNE opcode
+    opcode_table[0x08].single_handler = &IOPJIT::iop_jit_addi; // ADDI opcode
     opcode_table[0x09].single_handler = &IOPJIT::iop_jit_addiu; // ADDIU opcode
     opcode_table[0x10].rs_map[0x00] = &IOPJIT::iop_jit_mfc0; // MFC0 opcode
     opcode_table[0x0A].single_handler = &IOPJIT::iop_jit_slti; // SLTI opcode
@@ -301,6 +302,60 @@ void IOPJIT::iop_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_
     llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result, rt_ptr);
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF); // Extract the signed immediate (16-bit)
+
+    // Get a pointer to the GPR base
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty()) // GPR is 32-bit
+    );
+
+    // Load the value from the rs register
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)
+    ));
+
+    // Create the immediate value (signed 16-bit immediate, sign-extended to 32-bit)
+    llvm::Value* imm_value = builder->getInt32(imm);
+
+    // Perform the addition: result = rs_value + imm_value
+    llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
+
+    // Check for overflow (overflow occurs when the result can't fit in a signed 32-bit integer)
+    llvm::Value* overflow_check = builder->CreateICmpSGT(result, builder->getInt32(INT32_MAX));
+    llvm::BasicBlock* overflow_block = llvm::BasicBlock::Create(builder->getContext(), "overflow", builder->GetInsertBlock()->getParent());
+    llvm::BasicBlock* no_overflow_block = llvm::BasicBlock::Create(builder->getContext(), "no_overflow", builder->GetInsertBlock()->getParent());
+
+    // If overflow occurs, jump to the overflow block
+    builder->CreateCondBr(overflow_check, overflow_block, no_overflow_block);
+
+    // Overflow Block (handle overflow exception)
+    builder->SetInsertPoint(overflow_block);
+    // Implement exception handling here if necessary
+    // For now, we can just raise an error (or can invoke a custom overflow handler)
+    llvm::Value* overflow_msg = builder->CreateGlobalStringPtr("Overflow occurred in ADDI");
+    
+    // Get the module using the function's parent
+    llvm::Module* module = builder->GetInsertBlock()->getParent()->getParent();
+    
+    // Call the trap intrinsic from the module
+    builder->CreateCall(llvm::Intrinsic::getDeclaration(module, llvm::Intrinsic::trap), {});
+    builder->CreateUnreachable();
+
+    // No Overflow Block (continue with normal flow)
+    builder->SetInsertPoint(no_overflow_block);
+
+    // Store the result in the destination register (rt)
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    builder->CreateStore(result, rt_ptr);
+
+    // Emit the update to PC after this operation
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
 void IOPJIT::iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
