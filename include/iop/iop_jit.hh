@@ -66,6 +66,8 @@ private:
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
     llvm::FunctionType* iop_read32_type;
     llvm::Function* iop_read32;
+    llvm::FunctionType* iop_write32_type;
+    llvm::Function* iop_write32;
 
     typedef void (IOPJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, IOP*);
 
@@ -95,4 +97,5 @@ private:
     void iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
 };
