@@ -27,3 +27,4 @@ add_subdirectory(frontend)
 
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(neo2 PRIVATE LLVM)
+target_link_options(neo2 PRIVATE -Wl,--export-dynamic)
