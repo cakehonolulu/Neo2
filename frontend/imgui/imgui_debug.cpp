@@ -245,3 +245,66 @@ void ImGuiDebug::render_jit_blocks(const char* window_name, CPU& cpu) {
 
     ImGui::EndChild();
 }
+
+std::unordered_map<int, float> tlb_entry_change_timers;
+std::unordered_map<int, TLBEntry> previous_tlb_entries;
+
+void ImGuiDebug::render_bus_info(const char* window_name, const Bus& bus) {
+    ImGui::Text("TLB Mappings");
+
+    // Start table with 5 columns: entry_hi, entry_lo0, entry_lo1, page_mask, global
+    if (ImGui::BeginTable("tlb_table", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        // Define headers for each column
+        ImGui::TableSetupColumn("Entry Hi", ImGuiTableColumnFlags_DefaultSort);
+        ImGui::TableSetupColumn("Entry Lo0");
+        ImGui::TableSetupColumn("Entry Lo1");
+        ImGui::TableSetupColumn("Page Mask");
+        ImGui::TableSetupColumn("Global");
+
+        // Actually render the header row
+        ImGui::TableHeadersRow();
+
+        // Iterate through each TLB entry
+        const auto& tlb_entries = bus.tlb.get_tlb_entries();
+        for (size_t i = 0; i < tlb_entries.size(); ++i) {
+            const TLBEntry& current_entry = tlb_entries[i];
+
+            // Check for changes and update the timer
+            if (previous_tlb_entries.find(i) == previous_tlb_entries.end() || previous_tlb_entries[i] != current_entry) {
+                previous_tlb_entries[i] = current_entry;
+                tlb_entry_change_timers[i] = 1.0f; // Set the timer to 1 second when the entry changes
+            }
+
+            // Apply the red highlighting if there was a change
+            ImVec4 color = ImVec4(1.0f, 1.0f - tlb_entry_change_timers[i], 1.0f - tlb_entry_change_timers[i], 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+
+            // Display the TLB entry data in the table
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", current_entry.entry_hi);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", current_entry.entry_lo0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", current_entry.entry_lo1);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", current_entry.page_mask);
+
+            ImGui::TableNextColumn();
+            ImGui::Text(current_entry.global ? "Yes" : "No");
+
+            // Pop style color after the entry is displayed
+            ImGui::PopStyleColor();
+
+            // Decrease the timer
+            if (tlb_entry_change_timers[i] > 0.0f) {
+                tlb_entry_change_timers[i] -= ImGui::GetIO().DeltaTime;
+            }
+        }
+
+        ImGui::EndTable();
+    }
+}
