@@ -41,13 +41,13 @@ class IOPJIT {
 public:
     IOPJIT(IOP* core);
     ~IOPJIT();
+    std::unordered_map<uint32_t, CompiledBlock> block_cache;
     void execute_opcode(std::uint32_t opcode);
     void step();
     void run();
 
 private:
     static constexpr size_t CACHE_SIZE = 1024;
-    std::unordered_map<uint32_t, CompiledBlock> block_cache;
     std::vector<uint32_t> lru_queue;
     uint64_t execution_count = 0;
     bool single_instruction_mode = false;

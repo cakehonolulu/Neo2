@@ -27,6 +27,10 @@ class EE : public CPU
     void step() override;
     void reset();
 
+    const std::unordered_map<uint32_t, CompiledBlock>* get_block_cache() const override {
+      return jit ? &jit->block_cache : nullptr;
+    }
+
     std::uint32_t fetch_opcode() override;
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
