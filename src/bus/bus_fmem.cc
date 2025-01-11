@@ -16,13 +16,37 @@ using std::format;
 using fmt::format;
 #endif
 
-void Bus::fmem_init()
-{
-    // PS2's Address Space is 4GB, divide it in 4KB pages
+void Bus::fmem_init() {
+    tlb = TLB(32);
+
+    // Initialize TLB entries for BIOS and RAM
+    TLBEntry entry;
+
+    // KSEG1 (uncached BIOS)
+    entry.page_mask = 0x1FFF; // 4KB pages
+    entry.entry_hi = 0xBFC00000; // Virtual address
+    entry.entry_lo0 = 0x1FC00000 >> 12; // Physical address shifted (PFN for 0x1FC00000)
+    entry.entry_lo1 = 0x1FC01000 >> 12; // Next page
+    entry.global = true;
+    tlb.write_entry(0, entry);
+
+    // KSEG0 (cached BIOS)
+    entry.entry_hi = 0x9FC00000;
+    entry.entry_lo0 = 0x1FC00000 >> 12; // Physical address shifted (PFN for 0x1FC00000)
+    entry.entry_lo1 = 0x1FC01000 >> 12; // Next page
+    tlb.write_entry(1, entry);
+
+    // KUSEG (RAM)
+    entry.page_mask = 0x007FE000; // 4MB pages
+    entry.entry_hi = 0x00000000;
+    entry.entry_lo0 = 0x00000000 >> 12; // Physical address shifted (PFN for 0x00000000)
+    entry.entry_lo1 = 0x00400000 >> 12; // For next 4MB page
+    entry.global = true;
+    tlb.write_entry(2, entry);
+
+    // PS2's Address Space is 4GB, divided into 4KB pages
     address_space_r = new uintptr_t[0x100000];  // Readable memory pages (4KB * 1024 * 1024 = 4GB)
     address_space_w = new uintptr_t[0x100000];  // Writable memory pages
-
-    const uint32_t PAGE_SIZE = 4 * 1024; // Page size = 4KB
 
     memset(address_space_r, 0, sizeof(uintptr_t) * 0x100000);
     memset(address_space_w, 0, sizeof(uintptr_t) * 0x100000);
@@ -45,40 +69,46 @@ void Bus::fmem_init()
     }
 }
 
-std::uint32_t map_to_phys(std::uint32_t addr) {
-    if (addr >= 0x80000000 && addr < 0xA0000000) {
-        // KSEG0: Directly mapped, no translation needed
-        return addr & 0x1FFFFFFF;  // Physical address (clearing the high 3 bits)
-    }
-    else if (addr >= 0xA0000000 && addr < 0xC0000000) {
-        // KSEG1: Directly mapped, no translation needed
-        return addr & 0x1FFFFFFF;  // Physical address (uncached)
-    }
-    else if (addr >= 0xBFC00000 && addr < 0xC0000000) {
-        // BIOS or special addresses
-        return addr & 0x1FFFFFFF;
-    }
-    else {
-        std::string msg;
-        msg = "Unhandled address translation for: 0x" + format("{:08X}", addr);
-        // Handle other address regions or unknown addresses
-        Logger::error(msg.c_str());
-        return 0;
+std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB& tlb, const uintptr_t* address_space) {
+    if (vaddr >= 0x80000000 && vaddr < 0xA0000000) {
+        return vaddr & 0x1FFFFFFF; // KSEG0: directly mapped, cached
+    } else if (vaddr >= 0xA0000000 && vaddr < 0xC0000000) {
+        return vaddr & 0x1FFFFFFF; // KSEG1: directly mapped, uncached
+    } else {
+        const TLBEntry* entry = tlb.find_entry(vaddr);
+        if (entry) {
+            uint32_t vpn2 = entry->entry_hi & ~(entry->page_mask);
+            uint32_t offset = vaddr & 0xFFF; // Offset within the 4KB page
+
+            uint32_t pfn;
+            if (vaddr & (1 << 12)) { // Use entry_lo1 for odd pages
+                pfn = entry->entry_lo1 << 12;
+            } else { // Use entry_lo0 for even pages
+            pfn = entry->entry_lo0 << 12;
+        }
+
+        return pfn | (vaddr & 0xFFF);
+        
+        } else {
+            std::string msg = "Unhandled address translation for: 0x" + format("{:08X}", vaddr);
+            Logger::error(msg.c_str());
+            return 0;
+        }
     }
 }
 
 std::uint32_t Bus::fmem_read32(std::uint32_t address)
 {
-    address = map_to_phys(address);
+    address = map_to_phys(address, tlb, address_space_r);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
     const auto pointer = address_space_r[page]; // Get the pointer to this page
 
     if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
-	{
-		return *(uint32_t *)(pointer + offset);
-	}
-    else if (address >= 0xBF000000 && address < (0xBFC00000))
+    {
+        return *(uint32_t *)(pointer + offset);
+    }
+    else if (address >= 0xBF000000 && address < 0xBFC00000)
     {
         // TODO: Minor hack for debugger not to exit
         return 0x00000000;
@@ -88,8 +118,7 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
     }
     else
     {
-        std::string msg;
-        msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
+        std::string msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
         Logger::error(msg.c_str());
         return Neo2::exit(1, Neo2::Subsystem::Bus);
     }
@@ -97,7 +126,7 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
 
 void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
 {
-    address = map_to_phys(address);
+    address = map_to_phys(address, tlb, address_space_w);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
     const auto pointer = address_space_w[page]; // Get the pointer to this page
@@ -115,8 +144,7 @@ void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
     }
     else
     {
-        std::string msg;
-        msg = "32-bit write to unknown address: 0x" + format("{:08X}", address);
+        std::string msg = "32-bit write to unknown address: 0x" + format("{:08X}", address);
         Logger::error(msg.c_str());
         Neo2::exit(1, Neo2::Subsystem::Bus);
     }

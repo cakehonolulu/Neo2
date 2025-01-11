@@ -6,7 +6,7 @@
 #include <iostream>
 #include <neo2.hh>
 
-Bus::Bus(BusMode mode)
+Bus::Bus(BusMode mode) : tlb(32)
 {
 	Logger::set_subsystem("BUS");
 
