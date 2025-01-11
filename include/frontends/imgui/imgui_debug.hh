@@ -10,6 +10,7 @@ class ImGuiDebug {
     void render_debug_windows();
     void render_cpu_disassembly(const char* window_name, uint32_t start_pc, CPU* cpu, bool& pseudos, int& scroll_offset);
     void render_cpu_registers(const char* window_name, CPU* cpu);
+    void render_jit_blocks(const char* window_name, CPU& cpu);
 
     bool use_pseudos_ee = true;
     bool use_pseudos_iop = true;

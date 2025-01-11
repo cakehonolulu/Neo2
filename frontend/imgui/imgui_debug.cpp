@@ -195,3 +195,53 @@ void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
         ImGui::EndTable();
     }
 }
+
+void ImGuiDebug::render_jit_blocks(const char* window_name, CPU& cpu) {
+    ImGui::BeginChild(window_name, ImVec2(0, ImGui::GetContentRegionAvail().y), true, ImGuiWindowFlags_HorizontalScrollbar);
+
+    ImGui::Text("%s JIT Compiled Blocks:", window_name);
+    ImGui::Separator();
+
+    static std::unordered_map<uint32_t, bool> block_open_state;
+
+    const std::unordered_map<uint32_t, CompiledBlock>* block_cache = cpu.get_block_cache();
+    if (block_cache && ImGui::BeginTable("jit_table", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Start PC");
+        ImGui::TableSetupColumn("End PC");
+        ImGui::TableSetupColumn("Code Pointer");
+        ImGui::TableSetupColumn("Last Used");
+        ImGui::TableSetupColumn("Contains Branch");
+        ImGui::TableSetupColumn("LLVM IR");
+        ImGui::TableHeadersRow();
+
+        for (const auto& [pc, block] : *block_cache) {
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", block.start_pc);
+            ImGui::TableNextColumn();
+            ImGui::Text("0x%08X", block.end_pc);
+            ImGui::TableNextColumn();
+            ImGui::Text("%p", block.code_ptr);
+            ImGui::TableNextColumn();
+            ImGui::Text("%llu", block.last_used);
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", block.contains_branch ? "Yes" : "No");
+
+            // Add a button to expand and show LLVM IR
+            ImGui::TableNextColumn();
+            if (block_open_state[pc]) {
+                if (ImGui::Button(("Hide IR##" + std::to_string(pc)).c_str())) {
+                    block_open_state[pc] = false;
+                }
+                ImGui::Text("%s", block.llvm_ir.c_str());
+            } else {
+                if (ImGui::Button(("Show IR##" + std::to_string(pc)).c_str())) {
+                    block_open_state[pc] = true;
+                }
+            }
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::EndChild();
+}

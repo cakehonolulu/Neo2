@@ -31,6 +31,8 @@ public:
     virtual std::uint32_t fetch_opcode() = 0;
     virtual void parse_opcode(std::uint32_t opcode) = 0;
 
+    virtual const std::unordered_map<uint32_t, CompiledBlock>* get_block_cache() const = 0;
+
     Bus* bus;
 
     std::uint32_t pc;

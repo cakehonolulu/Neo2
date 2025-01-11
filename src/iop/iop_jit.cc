@@ -136,15 +136,12 @@ void IOPJIT::run() {
 
 void IOPJIT::execute_opcode(std::uint32_t opcode) {
     // Try to find existing block
-    Logger::info("Trying to search for block at PC: " + format("0x{:08X}", core->pc));
     CompiledBlock* block = find_block(core->pc);
     
     if (!block) {
-        Logger::info("Block not found, compiling new block at PC: " + format("0x{:08X}", core->pc));
         // Compile new block if not found
         block = compile_block(core->pc, single_instruction_mode);
         if (!block) {
-            Logger::error("Failed to compile block at PC: " + format("0x{:08X}", core->pc));
             return;
         }
         
@@ -158,9 +155,7 @@ void IOPJIT::execute_opcode(std::uint32_t opcode) {
     // Execute block
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
-    Logger::info("Executing block at PC: " + format("0x{:08X}", core->pc));
     int result = exec_fn();
-    Logger::info("Executed block at PC: " + format("0x{:08X}", core->pc));
 }
 
 CompiledBlock* IOPJIT::compile_block(uint32_t start_pc, bool single_instruction) {
