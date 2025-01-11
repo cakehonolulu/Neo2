@@ -64,8 +64,6 @@ private:
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
-    llvm::FunctionType* ee_write32_type;
-    llvm::Function* ee_write32;
 
     typedef void (EEJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, EE*);
 
@@ -91,5 +89,4 @@ private:
     void ee_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_ori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
-    void ee_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };

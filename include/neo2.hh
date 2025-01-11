@@ -12,14 +12,15 @@ class Neo2 {
         EE,
         IOP,
         Bus,
-        Disassembler
+        Disassembler,
+        Frontend
     };
 
     Neo2(std::shared_ptr<LogBackend> logger = nullptr);
     virtual ~Neo2();
 
     virtual void init() = 0;
-    virtual void run() = 0;
+    virtual void run(int argc, char **argv) = 0;
 
     static int exit(int code, Subsystem subsystem);
     static bool is_aborted() { return aborted; }

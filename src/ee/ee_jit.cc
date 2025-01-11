@@ -50,12 +50,6 @@ EEJIT::EEJIT(EE* core) : core(core) {
 
     Logger::info("JIT initialization successful");
     initialize_opcode_table();
-
-    
-    ee_write32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
-    ee_write32 = llvm::Function::Create(
-    ee_write32_type, llvm::Function::ExternalLinkage, "ee_write32", module.get());;
-
     ready = true;
 }
 
@@ -84,18 +78,11 @@ void EEJIT::initialize_opcode_table() {
 
     opcode_table[0x05].single_handler = &EEJIT::ee_jit_bne; // BNE opcode
     opcode_table[0x09].single_handler = &EEJIT::ee_jit_addiu; // ADDIU opcode
+    opcode_table[0x10].rs_map[0x00] = &EEJIT::ee_jit_mfc0; // MFC0 opcode
+    opcode_table[0x10].rs_map[0x04] = &EEJIT::ee_jit_mtc0; // MTC0 opcode
     opcode_table[0x0A].single_handler = &EEJIT::ee_jit_slti; // SLTI opcode
     opcode_table[0x0D].single_handler = &EEJIT::ee_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &EEJIT::ee_jit_lui; // LUI opcode
-
-    opcode_table[0x10].rs_map[0x00] = &EEJIT::ee_jit_mfc0; // MFC0 opcode
-    opcode_table[0x10].rs_map[0x04] = &EEJIT::ee_jit_mtc0; // MTC0 opcode
-
-    opcode_table[0x2B].single_handler = &EEJIT::ee_jit_sw; // SW opcode
-}
-
-extern "C" void ee_write32(EE* core, uint32_t addr, uint32_t value) {
-    core->bus->write32(addr, value);
 }
 
 std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -143,11 +130,9 @@ void EEJIT::step() {
 }
 
 void EEJIT::run() {
-    while (!Neo2::is_aborted()) {
-        std::uint32_t opcode = core->fetch_opcode();
-        execute_opcode(opcode);
-        core->registers[0].u32[0] = 0;
-    }
+    std::uint32_t opcode = core->fetch_opcode();
+    execute_opcode(opcode);
+    core->registers[0].u128 = 0;
 }
 
 void EEJIT::execute_opcode(std::uint32_t opcode) {
@@ -451,40 +436,5 @@ void EEJIT::ee_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
 
 void EEJIT::ee_jit_sync(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
     // DUMMY OPCODE
-    EMIT_EE_UPDATE_PC(core, builder, current_pc);
-}
-
-void EEJIT::ee_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
-    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
-
-    // Handle 128-bit register access for rs (base register)
-    llvm::Value* gpr_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
-    );
-
-    // Load the base register value (rs) from the GPR array
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)
-    ));
-
-    // Offset is a 16-bit signed immediate, so extend it to 32-bit
-    llvm::Value* offset_value = builder->getInt32(offset);
-
-    // Calculate the effective address: addr = base + offset
-    llvm::Value* addr_value = builder->CreateAdd(rs_value, offset_value); 
-
-    // Load the value to store from register rt
-    llvm::Value* value_to_store = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)
-    ));
-
-    // Call write32: write32(core, addr, value_to_store)
-    builder->CreateCall(ee_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
-                                    addr_value, value_to_store});
-
-    // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
