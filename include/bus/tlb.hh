@@ -9,6 +9,18 @@ struct TLBEntry {
     uint32_t entry_lo0;
     uint32_t entry_lo1;
     bool global;
+
+    bool operator!=(const TLBEntry& other) const {
+        return entry_hi != other.entry_hi ||
+               entry_lo0 != other.entry_lo0 ||
+               entry_lo1 != other.entry_lo1 ||
+               page_mask != other.page_mask ||
+               global != other.global;
+    }
+
+    bool operator==(const TLBEntry& other) const {
+        return !(*this != other);
+    }
 };
 
 class TLB {
@@ -22,16 +34,17 @@ public:
     }
 
     const TLBEntry* find_entry(uint32_t vaddr) const {
-    for (const auto& entry : entries) {
-        // Mask the VPN2 field according to the PageMask
-        uint32_t mask = ~(entry.page_mask << 13);
-        if ((vaddr & mask) == (entry.entry_hi & mask)) {
-            return &entry;
+        for (const auto& entry : entries) {
+            // Mask the VPN2 field according to the PageMask
+            uint32_t mask = ~(entry.page_mask << 13);
+            if ((vaddr & mask) == (entry.entry_hi & mask)) {
+                return &entry;
+            }
         }
+        return nullptr;
     }
-    return nullptr;
-}
 
+    const std::vector<TLBEntry>& get_tlb_entries() const { return entries; }
 
 private:
     std::vector<TLBEntry> entries;

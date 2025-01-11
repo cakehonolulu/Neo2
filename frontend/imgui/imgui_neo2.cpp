@@ -53,6 +53,8 @@ void ImGui_Neo2::run(int argc, char **argv)
     static bool show_ee_llvm_blocks = false;
     static bool show_iop_llvm_blocks = false;
 
+    static bool show_bus_debug = false;
+
     argparse::ArgumentParser program("Neo2");
 
     program.add_argument("--bios")
@@ -188,6 +190,8 @@ void ImGui_Neo2::run(int argc, char **argv)
                 if (use_jit_iop) {
                     ImGui::MenuItem("Show IOP LLVM Blocks", nullptr, &show_iop_llvm_blocks);
                 }
+
+                ImGui::MenuItem("Show Bus Debug", nullptr, &show_bus_debug);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -264,6 +268,10 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         if (show_iop_llvm_blocks) {
             debug_interface.render_jit_blocks("IOP LLVM Blocks", this->iop);
+        }
+
+        if (show_bus_debug) {
+            debug_interface.render_bus_info("Bus Info", bus);
         }
 
         // Handle the file dialog for loading BIOS
