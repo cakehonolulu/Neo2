@@ -22,6 +22,7 @@
 #include <SDL3/SDL_opengl.h>
 #endif
 #include "ImGuiFileDialog.h"
+#include <argparse/argparse.hpp>
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -35,8 +36,53 @@ void ImGui_Neo2::init()
     Logger::debug("Initializing ImGui frontend...\n");
 }
 
-void ImGui_Neo2::run()
+void ImGui_Neo2::run(int argc, char **argv)
 {
+    // Main loop
+    bool done = false;
+    static bool suppress_exit_notification = false;
+
+    // Backend selection state
+    static bool use_jit_ee = true; // Default to JIT
+    static bool use_jit_iop = true; // Default to JIT
+
+    // Debug window visibility state
+    static bool show_ee_debug = false;
+    static bool show_iop_debug = false;
+
+    argparse::ArgumentParser program("Neo2");
+
+    program.add_argument("--bios")
+        .help("Path to BIOS")
+        .nargs(1);
+
+    program.add_argument("--full-debug")
+        .help("Enable debug windows")
+        .nargs(0);
+
+    try
+    {
+        program.parse_args(argc, argv);
+    }
+    catch (const std::runtime_error &err)
+    {
+        std::cerr << err.what() << std::endl;
+        std::cerr << program;
+        Neo2::exit(1, Neo2::Subsystem::Frontend);
+    }
+
+    if (program.is_used("--bios"))
+    {
+        std::string bios_path = program.get<std::string>("--bios");
+        bus.load_bios(bios_path);
+    }
+
+    if (program.is_used("--full-debug"))
+    {
+        show_ee_debug = true;
+        show_iop_debug = true;
+    }
+
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
@@ -81,18 +127,6 @@ void ImGui_Neo2::run()
     bool show_demo_window = true;
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-    // Main loop
-    bool done = false;
-    static bool suppress_exit_notification = false;
-
-    // Backend selection state
-    static bool use_jit_ee = true; // Default to JIT
-    static bool use_jit_iop = true; // Default to JIT
-
-    // Debug window visibility state
-    static bool show_ee_debug = false;
-    static bool show_iop_debug = false;
 
     ImGuiDebug debug_interface(*this, this->disassembler);
 	std::string bios_file_path;

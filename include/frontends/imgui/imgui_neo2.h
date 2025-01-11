@@ -8,7 +8,7 @@ class ImGui_Neo2 : public Neo2
   public:
 	ImGui_Neo2();
     void init() override;
-    void run() override;
+    void run(int argc, char **argv) override;
 
   private:
 	std::shared_ptr<ImGuiLogBackend> imgui_logger;
