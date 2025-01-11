@@ -50,6 +50,14 @@ IOPJIT::IOPJIT(IOP* core) : core(core) {
 
     Logger::info("JIT initialization successful");
     initialize_opcode_table();
+
+    iop_read32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty()}, false);
+    iop_read32 = llvm::Function::Create(
+    iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", module.get());;
+    iop_write32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
+    iop_write32 = llvm::Function::Create(
+    iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", module.get());;
+
     ready = true;
 }
 
@@ -74,14 +82,30 @@ IOPJIT::~IOPJIT() {
 void IOPJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = &IOPJIT::iop_jit_sll; // SLL opcode
     opcode_table[0x00].funct3_map[0x08] = &IOPJIT::iop_jit_jr; // JR opcode
+    opcode_table[0x00].funct3_map[0x25] = &IOPJIT::iop_jit_or; // OR opcode
 
+    opcode_table[0x03].single_handler = &IOPJIT::iop_jit_jal; // JAL opcode
     opcode_table[0x04].single_handler = &IOPJIT::iop_jit_beq; // BEQ opcode
     opcode_table[0x05].single_handler = &IOPJIT::iop_jit_bne; // BNE opcode
+    opcode_table[0x08].single_handler = &IOPJIT::iop_jit_addi; // ADDI opcode
     opcode_table[0x09].single_handler = &IOPJIT::iop_jit_addiu; // ADDIU opcode
+
     opcode_table[0x10].rs_map[0x00] = &IOPJIT::iop_jit_mfc0; // MFC0 opcode
+
     opcode_table[0x0A].single_handler = &IOPJIT::iop_jit_slti; // SLTI opcode
+    opcode_table[0x0C].single_handler = &IOPJIT::iop_jit_andi; // ANDI opcode
     opcode_table[0x0D].single_handler = &IOPJIT::iop_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui; // LUI opcode
+    opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw; // LW opcode
+    opcode_table[0x2B].single_handler = &IOPJIT::iop_jit_sw; // SW opcode
+}
+
+extern "C" uint32_t iop_read32(IOP* core, uint32_t addr) {
+    return core->bus->read32(addr);
+}
+
+extern "C" void iop_write32(IOP* core, uint32_t addr, uint32_t value) {
+    core->bus->write32(addr, value);
 }
 
 std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -129,9 +153,11 @@ void IOPJIT::step() {
 }
 
 void IOPJIT::run() {
-    std::uint32_t opcode = core->fetch_opcode();
-    execute_opcode(opcode);
-    core->registers[0] = 0;
+    while (!Neo2::is_aborted()) {
+        std::uint32_t opcode = core->fetch_opcode();
+        execute_opcode(opcode);
+        core->registers[0] = 0;
+    }
 }
 
 void IOPJIT::execute_opcode(std::uint32_t opcode) {
@@ -288,6 +314,51 @@ void IOPJIT::iop_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
 
+
+void IOPJIT::iop_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF); // Extract the signed immediate (16-bit)
+    // Get a pointer to the GPR base
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty()) // GPR is 32-bit
+    );
+    // Load the value from the rs register
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)
+    ));
+    // Create the immediate value (signed 16-bit immediate, sign-extended to 32-bit)
+    llvm::Value* imm_value = builder->getInt32(imm);
+    // Perform the addition: result = rs_value + imm_value
+    llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
+    // Check for overflow (overflow occurs when the result can't fit in a signed 32-bit integer)
+    llvm::Value* overflow_check = builder->CreateICmpSGT(result, builder->getInt32(INT32_MAX));
+    llvm::BasicBlock* overflow_block = llvm::BasicBlock::Create(builder->getContext(), "overflow", builder->GetInsertBlock()->getParent());
+    llvm::BasicBlock* no_overflow_block = llvm::BasicBlock::Create(builder->getContext(), "no_overflow", builder->GetInsertBlock()->getParent());
+    // If overflow occurs, jump to the overflow block
+    builder->CreateCondBr(overflow_check, overflow_block, no_overflow_block);
+    // Overflow Block (handle overflow exception)
+    builder->SetInsertPoint(overflow_block);
+    // Implement exception handling here if necessary
+    // For now, we can just raise an error (or can invoke a custom overflow handler)
+    llvm::Value* overflow_msg = builder->CreateGlobalStringPtr("Overflow occurred in ADDI");
+    
+    // Get the module using the function's parent
+    llvm::Module* module = builder->GetInsertBlock()->getParent()->getParent();
+    
+    // Call the trap intrinsic from the module
+    builder->CreateCall(llvm::Intrinsic::getDeclaration(module, llvm::Intrinsic::trap), {});
+    builder->CreateUnreachable();
+    // No Overflow Block (continue with normal flow)
+    builder->SetInsertPoint(no_overflow_block);
+    // Store the result in the destination register (rt)
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    builder->CreateStore(result, rt_ptr);
+    // Emit the update to PC after this operation
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
 void IOPJIT::iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
     uint8_t rd = (opcode >> 11) & 0x1F;
     uint8_t rt = (opcode >> 16) & 0x1F;
@@ -305,6 +376,56 @@ void IOPJIT::iop_jit_sll(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
     llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rd));
     builder->CreateStore(sign_extended_value, rd_ptr);
 
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract the destination register (rd)
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract the source register (rs)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract the second source register (rt)
+    // Get a pointer to the GPR base
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    // Load the values from the rs and rt registers
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs)
+    ));
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rt)
+    ));
+    // Perform the OR operation: result = rs_value | rt_value
+    llvm::Value* result = builder->CreateOr(rs_value, rt_value);
+    // Store the result in the destination register (rd)
+    llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+    builder->CreateStore(result, rd_ptr);
+    // Emit the update to PC after this operation
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+void IOPJIT::iop_jit_andi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract the source register (rs)
+    uint16_t imm = static_cast<uint16_t>(opcode & 0xFFFF);  // Extract the 16-bit immediate
+    // Zero-extend the immediate to 32 bits
+    uint32_t imm_value = imm;  // In C++, uint16_t will automatically zero-extend to uint32_t
+    // Get a pointer to the GPR base
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    // Load the value from the rs register
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs)
+    ));
+    // Create the immediate value (zero-extended)
+    llvm::Value* imm_value_llvm = builder->getInt32(imm_value);
+    // Perform the AND operation: result = rs_value & imm_value
+    llvm::Value* result = builder->CreateAnd(rs_value, imm_value_llvm);
+    // Store the result in the destination register (rt)
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
+    builder->CreateStore(result, rt_ptr);
+    // Emit the update to PC after this operation
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
@@ -448,4 +569,79 @@ void IOPJIT::iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 
     is_branch = true;
+}
+
+void IOPJIT::iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint32_t target = opcode & 0x03FFFFFF; // Extract the 26-bit target address
+    // Shift the target address left by 2 (since instructions are 4 bytes)
+    uint32_t target_address = (target << 2);
+    // Calculate the return address (next instruction's address)
+    uint32_t return_address = current_pc + 4;
+    // Store the return address in register $31 (the link register)
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    
+    llvm::Value* ra_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(31)); // $31 = $ra
+    builder->CreateStore(builder->getInt32(return_address), ra_ptr);
+    // Set the branch destination to the calculated target address
+    builder->CreateStore(builder->getInt32(target_address), builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    ));
+    // Mark the instruction as a branch
+    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+        llvm::PointerType::getUnqual(builder->getInt1Ty())
+    ));
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+    // Set the branch flag
+    is_branch = true;
+}
+
+void IOPJIT::iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+    uint32_t addr = core->registers[rs] + offset;
+    llvm::Value* core_value = llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core));
+    // Create the arguments for read32
+    llvm::Value* addr_value = llvm::ConstantInt::get(builder->getInt32Ty(), addr);
+    // Call read32: read32(core, addr)
+    llvm::Value* value = builder->CreateCall(iop_read32, {core_value, addr_value});
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    llvm::Value* gpr_u32_0 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, {builder->getInt32(rt)});
+    builder->CreateStore(value, gpr_u32_0);
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+void IOPJIT::iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+    // Handle 128-bit register access for rs (base register)
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
+    );
+    // Load the base register value (rs) from the GPR array
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs)
+    ));
+    // Offset is a 16-bit signed immediate, so extend it to 32-bit
+    llvm::Value* offset_value = builder->getInt32(offset);
+    // Calculate the effective address: addr = base + offset
+    llvm::Value* addr_value = builder->CreateAdd(rs_value, offset_value); 
+    // Load the value to store from register rt
+    llvm::Value* value_to_store = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rt)
+    ));
+    // Call write32: write32(core, addr, value_to_store)
+    builder->CreateCall(iop_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+                                    addr_value, value_to_store});
+    // Emit the update to PC after this operation
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }

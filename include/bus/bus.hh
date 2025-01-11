@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bus/tlb.hh>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -11,6 +12,8 @@ enum class BusMode
     SoftwareFastMem
 };
 
+const uint32_t PAGE_SIZE = 4 * 1024; // Page size = 4KB
+
 class Bus
 {
   private:
@@ -20,6 +23,7 @@ class Bus
     std::vector<std::uint8_t> bios;
     std::vector<std::uint8_t> ram;
 
+    TLB tlb;
     uintptr_t *address_space_r;
     uintptr_t *address_space_w;
 
