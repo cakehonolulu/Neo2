@@ -24,6 +24,7 @@ Bus::Bus(BusMode mode) : tlb(32)
     {
     case BusMode::SoftwareFastMem:
         fmem_init();
+        read8 = std::bind(&Bus::fmem_read8, this, std::placeholders::_1);
         read32 = std::bind(&Bus::fmem_read32, this, std::placeholders::_1);
         read128 = std::bind(&Bus::fmem_read128, this, std::placeholders::_1);
         write32 = std::bind(&Bus::fmem_write32, this, std::placeholders::_1, std::placeholders::_2);

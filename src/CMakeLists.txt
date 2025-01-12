@@ -10,4 +10,5 @@ target_sources(neo2
         ee/ee.cc
         ee/ee_interpreter.cc
         ee/ee_jit.cc
+        sio/sio.cc
         log/log.cpp)

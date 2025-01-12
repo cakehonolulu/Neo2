@@ -66,14 +66,20 @@ private:
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
+
     llvm::FunctionType* ee_write32_type;
     llvm::Function* ee_write32;
     llvm::FunctionType* ee_write64_type;
     llvm::Function* ee_write64;
-    llvm::FunctionType* ee_read128_type;
-    llvm::Function* ee_read128;
     llvm::FunctionType* ee_write128_type;
     llvm::Function* ee_write128;
+
+    llvm::FunctionType* ee_read8_type;
+    llvm::Function* ee_read8;
+    llvm::FunctionType* ee_read32_type;
+    llvm::Function* ee_read32;
+    llvm::FunctionType* ee_read128_type;
+    llvm::Function* ee_read128;
 
     typedef void (EEJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, EE*);
 
@@ -111,4 +117,15 @@ private:
     void ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_mult(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_divu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_beql(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mflo(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sltiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lb(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lbu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_swc1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sra(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_addu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_ld(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };

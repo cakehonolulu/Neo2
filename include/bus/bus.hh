@@ -28,6 +28,7 @@ class Bus
     uintptr_t *address_space_r;
     uintptr_t *address_space_w;
 
+    std::function<std::uint8_t(std::uint32_t)> read8;
     std::function<std::uint32_t(std::uint32_t)> read32;
     std::function<uint128_t(std::uint32_t)> read128;
     std::function<void(std::uint32_t, std::uint32_t)> write32;
@@ -35,6 +36,7 @@ class Bus
     std::function<void(std::uint32_t, uint128_t)> write128;
     void load_bios(const std::string &bios_path);
     void fmem_init();
+    std::uint8_t fmem_read8(uint32_t address);
     std::uint32_t fmem_read32(uint32_t address);
     uint128_t fmem_read128(uint32_t address);
     void fmem_write32(uint32_t address, uint32_t value);

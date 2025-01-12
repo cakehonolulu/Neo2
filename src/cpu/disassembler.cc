@@ -44,15 +44,24 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x0C] = OpcodeEntry("andi", InstructionType::RType);
     opcode_mnemonics[0x0D] = OpcodeEntry("ori", InstructionType::IType);
     opcode_mnemonics[0x0F] = OpcodeEntry("lui", InstructionType::IType);
+    opcode_mnemonics[0x14] = OpcodeEntry("beql", InstructionType::IType, true);
+    opcode_mnemonics[0x15] = OpcodeEntry("bnel", InstructionType::IType, true);
+    opcode_mnemonics[0x20] = OpcodeEntry("lb", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);
+    opcode_mnemonics[0x24] = OpcodeEntry("lbu", InstructionType::IType);
     opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
+    opcode_mnemonics[0x37] = OpcodeEntry("sd", InstructionType::IType);
+    opcode_mnemonics[0x39] = OpcodeEntry("swc1", InstructionType::IType);
     opcode_mnemonics[0x3F] = OpcodeEntry("sd", InstructionType::IType);
 
     // Extended opcode table (e.g., special opcodes when function == 0x00)
     extended_opcodes[0x00] = OpcodeEntry("sll", InstructionType::RType);
+    extended_opcodes[0x02] = OpcodeEntry("srl", InstructionType::RType);
+    extended_opcodes[0x03] = OpcodeEntry("sra", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
     extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
+    extended_opcodes[0x12] = OpcodeEntry("mflo", InstructionType::RType);
     extended_opcodes[0x18] = OpcodeEntry("mult", InstructionType::RType);
     extended_opcodes[0x1B] = OpcodeEntry("divu", InstructionType::RType);
     extended_opcodes[0x20] = OpcodeEntry("add", InstructionType::RType);
@@ -66,7 +75,6 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x2A] = OpcodeEntry("slt", InstructionType::RType);
     extended_opcodes[0x2B] = OpcodeEntry("sltu", InstructionType::RType);
     extended_opcodes[0x2D] = OpcodeEntry("move", InstructionType::RType);
-    extended_opcodes[0x43] = OpcodeEntry("srl", InstructionType::RType);
 
     // COP0 opcode table
     cop_opcode_tables[0x10][0x00] = OpcodeEntry("mfc0", InstructionType::IType);

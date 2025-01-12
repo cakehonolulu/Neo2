@@ -35,6 +35,7 @@ class EE : public CPU
 
     uint128_t registers[32];
     std::uint32_t cop0_registers[32];
+    fpu_reg_t fpr[32];
 
     std::uint32_t lo;
     std::uint32_t hi;
