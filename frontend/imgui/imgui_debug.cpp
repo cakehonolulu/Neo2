@@ -143,6 +143,11 @@ void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
     if (auto* ee = dynamic_cast<EE*>(cpu)) {
         // Text with current PC and next PC in parentheses casted from ee
         ImGui::Text("PC: 0x%08X (%08X)", ee->pc, ee->next_pc);
+        
+        // Display LO and HI registers for EE
+        ImGui::Text("LO: 0x%08X", ee->lo);
+        ImGui::Text("HI: 0x%08X", ee->hi);
+        
     } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
         // Text with current PC and next PC in parentheses casted from iop
         ImGui::Text("PC: 0x%08X (%08X)", iop->pc, iop->next_pc);

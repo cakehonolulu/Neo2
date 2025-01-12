@@ -1,5 +1,6 @@
 #include <bus/bus.hh>
 #include <bus/bus_fmem.hh>
+#include <sio/sio.hh>
 #include <log/log.hh>
 #include <cstring>
 #include <execinfo.h>
@@ -106,83 +107,112 @@ std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB& tlb, const uintptr_t* 
     }
 }
 
+template <typename T>
+T io_read(std::uint32_t address) {
+    switch (address) {
+        case 0x1000F100:
+        case 0x1000F110:
+        case 0x1000F120:
+        case 0x1000F130:
+        case 0x1000F140:
+        case 0x1000F150:
+        case 0x1000F180:
+        case 0x1000F1C0:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<uint32_t>(SIO::read(address));
+            }
+            break;
+        }
+        case 0x1F801010:
+            return static_cast<T>(0x0);
+        default:
+            std::string type_str = (sizeof(T) == 1 ? "8-bit read"  :
+                                    sizeof(T) == 2 ? "16-bit read" :
+                                    sizeof(T) == 4 ? "32-bit read" :
+                                    sizeof(T) == 8 ? "64-bit read" : "128-bit read");
+            std::string msg = type_str + " from unknown address: 0x" + format("{:08X}", address);
+            Logger::error(msg.c_str());
+            return static_cast<T>(Neo2::exit(1, Neo2::Subsystem::Bus));
+    }
+}
+
+template <typename T>
+void io_write(std::uint32_t address, T value) {
+    switch (address) {
+        case 0x1000F100:
+        case 0x1000F110:
+        case 0x1000F120:
+        case 0x1000F130:
+        case 0x1000F140:
+        case 0x1000F150:
+        case 0x1000F180:
+        case 0x1000F1C0:
+        {
+            if constexpr (sizeof(T) != 16) {
+                SIO::write(address, static_cast<uint32_t>(value));
+            }
+            break;
+        }
+        case 0x1000F500:
+        case 0x1F801010:
+            // NOP, unknown register
+            break;
+        default:
+            std::string type_str = (sizeof(T) == 1 ? "8-bit write"  :
+                                    sizeof(T) == 2 ? "16-bit write" :
+                                    sizeof(T) == 4 ? "32-bit write" :
+                                    sizeof(T) == 8 ? "64-bit write" : "128-bit write");
+            std::string msg = type_str + " to unknown address: 0x" + format("{:08X}", address);
+            Logger::error(msg.c_str());
+            Neo2::exit(1, Neo2::Subsystem::Bus);
+            break;
+    }
+}
+
+std::uint8_t Bus::fmem_read8(std::uint32_t address)
+{
+    address = map_to_phys(address, tlb, address_space_r); // Map the address to physical address
+    const auto page = address >> 12;            // Divide the address by 4KB to get the page number
+    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
+    const auto pointer = address_space_r[page]; // Get the pointer to the page
+    uint8_t result;
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        result = *(uint8_t *)(pointer + offset); // Read 8-bit value from the fast page
+    }
+    else
+    {
+        result = io_read<uint8_t>(address); // If it's not in the fast page, do an IO read
+    }
+
+    return result;
+}
+
 std::uint32_t Bus::fmem_read32(std::uint32_t address)
 {
     address = map_to_phys(address, tlb, address_space_r);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
     const auto pointer = address_space_r[page]; // Get the pointer to this page
+    uint32_t result;
 
     if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
     {
-        return *(uint32_t *)(pointer + offset);
+        result = *(uint32_t *)(pointer + offset);
     }
     else if (address >= 0xBF000000 && address < 0xBFC00000)
     {
         // TODO: Minor hack for debugger not to exit
-        return 0x00000000;
-    }
-    else if (address == 0x1F801010) {
-        return 0x00000000;
+        result = 0x00000000;
     }
     else
     {
-        std::string msg = "32-bit read from unknown address: 0x" + format("{:08X}", address);
-        Logger::error(msg.c_str());
-        return Neo2::exit(1, Neo2::Subsystem::Bus);
+        result = io_read<uint32_t>(address);
     }
-}
 
-void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
-{
-    address = map_to_phys(address, tlb, address_space_w);
-    const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
-    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
-    const auto pointer = address_space_w[page]; // Get the pointer to this page
-
-    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
-    {
-        *(uint32_t *)(pointer + offset) = value;
-    }
-    // Unknown register
-    else if (address == 0x1000F500) {
-        // NOP
-    }
-    else if (address == 0x1F801010) {
-        // NOP
-    }
-    else
-    {
-        std::string msg = "32-bit write to unknown address: 0x" + format("{:08X}", address);
-        Logger::error(msg.c_str());
-        Neo2::exit(1, Neo2::Subsystem::Bus);
-    }
-}
-
-void Bus::fmem_write64(std::uint32_t address, std::uint64_t value)
-{
-    address = map_to_phys(address, tlb, address_space_w);  // Map the virtual address to a physical address
-    const auto page = address >> 12;                        // Divide the address by 4KB to get the page number
-    const auto offset = address & 0xFFF;                    // The offset inside the 4KB page
-    const auto pointer = address_space_w[page];             // Get the pointer to this page
-
-    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
-    {
-        *(uint64_t *)(pointer + offset) = value;  // Store the 64-bit value at the effective address
-    }
-    // Special handling for known addresses
-    else if (address == 0x1000F500) {
-        // NOP (No operation) for a specific address
-    }
-    else if (address == 0x1F801010) {
-        // NOP (No operation) for another special address
-    }
-    else {
-        // Handle unknown address
-        std::string msg = "64-bit write to unknown address: 0x" + format("{:08X}", address);
-        Logger::error(msg.c_str());  // Log an error
-        Neo2::exit(1, Neo2::Subsystem::Bus);  // Exit on error
-    }
+    return result;
 }
 
 uint128_t Bus::fmem_read128(uint32_t address) {
@@ -197,15 +227,44 @@ uint128_t Bus::fmem_read128(uint32_t address) {
         result.u64[1] = *(uint64_t *)(pointer + offset + 8);
     } else if (address >= 0xBF000000 && address < 0xBFC00000) {
         result.u128 = 0;
-    } else if (address == 0x1F801010) {
-        result.u128 = 0;
     } else {
-        std::string msg = "128-bit read from unknown address: 0x" + format("{:08X}", address);
-        Logger::error(msg.c_str());
-        result.u128 = 0;
-        Neo2::exit(1, Neo2::Subsystem::Bus);
+        result = io_read<uint128_t>(address);
     }
     return result;
+}
+
+void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
+{
+    address = map_to_phys(address, tlb, address_space_w);
+    const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
+    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
+    const auto pointer = address_space_w[page]; // Get the pointer to this page
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        *(uint32_t *)(pointer + offset) = value;
+    }
+    else
+    {
+        io_write<uint32_t>(address, value);
+    }
+}
+
+void Bus::fmem_write64(std::uint32_t address, std::uint64_t value)
+{
+    address = map_to_phys(address, tlb, address_space_w);  // Map the virtual address to a physical address
+    const auto page = address >> 12;                        // Divide the address by 4KB to get the page number
+    const auto offset = address & 0xFFF;                    // The offset inside the 4KB page
+    const auto pointer = address_space_w[page];             // Get the pointer to this page
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        *(uint64_t *)(pointer + offset) = value;  // Store the 64-bit value at the effective address
+    }
+    else
+    {
+        io_write<uint64_t>(address, value);
+    }
 }
 
 void Bus::fmem_write128(uint32_t address, uint128_t value) {
@@ -221,13 +280,7 @@ void Bus::fmem_write128(uint32_t address, uint128_t value) {
     } else if (address >= 0xBF000000 && address < 0xBFC00000) {
         // Special case: Address is in the reserved range, no action needed
         // Since it's read-only, we don't write anything here.
-    } else if (address == 0x1F801010) {
-        // Special case: Writing to address 0x1F801010, no action needed
-        // You could log or do something if required for this address
     } else {
-        // Handle unknown address
-        std::string msg = "128-bit write to unknown address: 0x" + format("{:08X}", address);
-        Logger::error(msg.c_str());
-        Neo2::exit(1, Neo2::Subsystem::Bus);
+        io_write<uint128_t>(address, value);
     }
 }
