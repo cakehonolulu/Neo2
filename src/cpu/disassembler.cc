@@ -46,11 +46,15 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x0F] = OpcodeEntry("lui", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);
     opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
+    opcode_mnemonics[0x3F] = OpcodeEntry("sd", InstructionType::IType);
 
     // Extended opcode table (e.g., special opcodes when function == 0x00)
     extended_opcodes[0x00] = OpcodeEntry("sll", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
+    extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
     extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
+    extended_opcodes[0x18] = OpcodeEntry("mult", InstructionType::RType);
+    extended_opcodes[0x1B] = OpcodeEntry("divu", InstructionType::RType);
     extended_opcodes[0x20] = OpcodeEntry("add", InstructionType::RType);
     extended_opcodes[0x21] = OpcodeEntry("addu", InstructionType::RType);
     extended_opcodes[0x22] = OpcodeEntry("sub", InstructionType::RType);
@@ -61,6 +65,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x27] = OpcodeEntry("nor", InstructionType::RType);
     extended_opcodes[0x2A] = OpcodeEntry("slt", InstructionType::RType);
     extended_opcodes[0x2B] = OpcodeEntry("sltu", InstructionType::RType);
+    extended_opcodes[0x2D] = OpcodeEntry("move", InstructionType::RType);
     extended_opcodes[0x43] = OpcodeEntry("srl", InstructionType::RType);
 
     // COP0 opcode table

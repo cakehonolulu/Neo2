@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bus/tlb.hh>
+#include <reg.hh>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -28,9 +29,15 @@ class Bus
     uintptr_t *address_space_w;
 
     std::function<std::uint32_t(std::uint32_t)> read32;
+    std::function<uint128_t(std::uint32_t)> read128;
     std::function<void(std::uint32_t, std::uint32_t)> write32;
+    std::function<void(std::uint32_t, std::uint64_t)> write64;
+    std::function<void(std::uint32_t, uint128_t)> write128;
     void load_bios(const std::string &bios_path);
     void fmem_init();
     std::uint32_t fmem_read32(uint32_t address);
+    uint128_t fmem_read128(uint32_t address);
     void fmem_write32(uint32_t address, uint32_t value);
+    void fmem_write64(uint32_t address, uint64_t value);
+    void fmem_write128(uint32_t address, uint128_t value);
 };

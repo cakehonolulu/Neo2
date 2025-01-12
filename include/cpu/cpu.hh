@@ -36,8 +36,8 @@ public:
     Bus* bus;
 
     std::uint32_t pc;
+    std::uint32_t next_pc;
 
   protected:
     EmulationMode mode;
-    std::uint32_t next_pc;
 };
