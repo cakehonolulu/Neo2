@@ -25,7 +25,10 @@ Bus::Bus(BusMode mode) : tlb(32)
     case BusMode::SoftwareFastMem:
         fmem_init();
         read32 = std::bind(&Bus::fmem_read32, this, std::placeholders::_1);
+        read128 = std::bind(&Bus::fmem_read128, this, std::placeholders::_1);
         write32 = std::bind(&Bus::fmem_write32, this, std::placeholders::_1, std::placeholders::_2);
+        write64 = std::bind(&Bus::fmem_write64, this, std::placeholders::_1, std::placeholders::_2);
+        write128 = std::bind(&Bus::fmem_write128, this, std::placeholders::_1, std::placeholders::_2);
         Logger::info("Running Bus w/Software FastMem mode...");
         break;
     case BusMode::Ranged:

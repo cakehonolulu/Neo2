@@ -487,33 +487,64 @@ void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
 void IOPJIT::iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
     uint8_t rs = (opcode >> 21) & 0x1F;
     uint8_t rt = (opcode >> 16) & 0x1F;
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);  // Get the 16-bit signed offset
 
+    // Get the base address for the general-purpose registers (GPR)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
+    // Load the values of rs and rt from the registers
     llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
     llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compare rs and rt for equality
     llvm::Value* condition = builder->CreateICmpEQ(rs_value, rt_value);
 
+    // Create basic blocks for the branch (true) and continue (false)
     llvm::BasicBlock* branch_block = llvm::BasicBlock::Create(*context, "branch", builder->GetInsertBlock()->getParent());
     llvm::BasicBlock* continue_block = llvm::BasicBlock::Create(*context, "continue", builder->GetInsertBlock()->getParent());
 
+    // Conditional branch based on the comparison
     builder->CreateCondBr(condition, branch_block, continue_block);
 
-    // Branch block
+    // Branch block: if the condition is true, calculate the target PC and branch
     builder->SetInsertPoint(branch_block);
-    llvm::Value* target_pc = builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(offset * 4));
-    builder->CreateStore(target_pc, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
-    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
+    // Sign-extend the offset to 32 bits
+    llvm::Value* signed_offset = builder->CreateSExt(builder->getInt16(offset), builder->getInt32Ty()); // Sign-extend to 32-bit
+
+    // Multiply by 4 (since MIPS is word-aligned)
+    signed_offset = builder->CreateMul(signed_offset, builder->getInt32(4), "offset_mul_4");
+
+    // Add 4 to current_pc to get to the next instruction
+    llvm::Value* current_pc_value = builder->getInt32(static_cast<int32_t>(current_pc)); // Convert current_pc to signed 32-bit integer
+    llvm::Value* next_pc_value = builder->CreateAdd(current_pc_value, builder->getInt32(4), "next_pc");  // current_pc + 4 (next instruction)
+
+    // Add the signed offset to get the target PC
+    llvm::Value* target_pc = builder->CreateAdd(next_pc_value, signed_offset, "calc_target_pc");
+
+    // Store the target PC and mark the branch destination
+    builder->CreateStore(target_pc, builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    ));
+
+    // Set the branching flag to true
+    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+        llvm::PointerType::getUnqual(builder->getInt1Ty())
+    ));
+
+    // Branch to the continue block after handling the branch
     builder->CreateBr(continue_block);
 
-    // Continue block
+    // Continue block: update the PC if no branch was taken
     builder->SetInsertPoint(continue_block);
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 
+    // Set the flag indicating a branch was taken
     is_branch = true;
 }
 
@@ -618,6 +649,7 @@ void IOPJIT::iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     builder->CreateStore(value, gpr_u32_0);
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
+
 void IOPJIT::iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
     uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
     uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)

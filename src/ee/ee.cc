@@ -68,6 +68,8 @@ void EE::reset() {
     next_pc = pc + 4;
     std::memset(registers, 0, sizeof(registers));
     std::memset(cop0_registers, 0, sizeof(cop0_registers));
+    lo = 0;
+    hi = 0;
 
     cop0_registers[15] = 0x59;
 };

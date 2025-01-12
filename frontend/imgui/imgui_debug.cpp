@@ -138,6 +138,18 @@ std::unordered_map<int, float> iop_register_change_timers;
 void ImGuiDebug::render_cpu_registers(const char* window_name, CPU* cpu) {
     ImGui::Text("Registers");
 
+    ImGui::Separator();
+    
+    if (auto* ee = dynamic_cast<EE*>(cpu)) {
+        // Text with current PC and next PC in parentheses casted from ee
+        ImGui::Text("PC: 0x%08X (%08X)", ee->pc, ee->next_pc);
+    } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
+        // Text with current PC and next PC in parentheses casted from iop
+        ImGui::Text("PC: 0x%08X (%08X)", iop->pc, iop->next_pc);
+    }
+
+    ImGui::Separator();
+    
     // General-purpose registers table
     if (ImGui::BeginTable("gpr_table", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         if (auto* ee = dynamic_cast<EE*>(cpu)) {

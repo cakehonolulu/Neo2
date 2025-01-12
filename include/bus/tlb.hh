@@ -36,13 +36,16 @@ public:
     const TLBEntry* find_entry(uint32_t vaddr) const {
         for (const auto& entry : entries) {
             // Mask the VPN2 field according to the PageMask
-            uint32_t mask = ~(entry.page_mask << 13);
-            if ((vaddr & mask) == (entry.entry_hi & mask)) {
+            uint32_t mask = entry.page_mask;  // Use page_mask directly here
+            uint32_t vpn2 = (vaddr & 0xFFFFF000); // Extract the VPN2 from vaddr
+
+            if ((vpn2 & mask) == (entry.entry_hi & mask)) {
                 return &entry;
             }
         }
         return nullptr;
     }
+
 
     const std::vector<TLBEntry>& get_tlb_entries() const { return entries; }
 

@@ -7,14 +7,7 @@
 #include <functional>
 #include <memory>
 #include <ee/ee_jit.hh>
-
-union uint128_t {
-    unsigned __int128 u128;
-    std::uint64_t u64[2];
-    std::uint32_t u32[4];
-    std::uint16_t u16[8];
-    std::uint8_t u8[16];
-};
+#include <reg.hh>
 
 class EE : public CPU
 {
@@ -42,6 +35,9 @@ class EE : public CPU
 
     uint128_t registers[32];
     std::uint32_t cop0_registers[32];
+
+    std::uint32_t lo;
+    std::uint32_t hi;
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;

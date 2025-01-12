@@ -15,10 +15,6 @@
             builder->getInt64(reinterpret_cast<uint64_t>(&(core->pc))), \
             llvm::PointerType::getUnqual(builder->getInt32Ty()) \
         ); \
-        llvm::Value* next_pc_ptr = builder->CreateIntToPtr( \
-            builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))), \
-            llvm::PointerType::getUnqual(builder->getInt32Ty()) \
-        ); \
         llvm::Value* branching_ptr = builder->CreateIntToPtr( \
             builder->getInt64(reinterpret_cast<uint64_t>(&(core->branching))), \
             llvm::PointerType::getUnqual(builder->getInt1Ty()) \
@@ -29,10 +25,16 @@
         ); \
         llvm::Value* branching = builder->CreateLoad(builder->getInt1Ty(), branching_ptr); \
         llvm::Value* branch_dest = builder->CreateLoad(builder->getInt32Ty(), branch_dest_ptr); \
-        llvm::Value* new_pc = builder->CreateSelect(branching, branch_dest, builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4))); \
+        llvm::Value* new_pc; \
+        llvm::Value* updated_branching = builder->getInt1(false); \
+        llvm::Value* updated_pc = builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4)); \
+        new_pc = builder->CreateSelect( \
+            branching, \
+            branch_dest, \
+            updated_pc \
+        ); \
         builder->CreateStore(new_pc, pc_ptr); \
-        builder->CreateStore(builder->CreateAdd(new_pc, builder->getInt32(4)), next_pc_ptr); \
-        builder->CreateStore(builder->getInt1(false), branching_ptr); \
+        builder->CreateStore(updated_branching, branching_ptr); \
     } while (0)
 
 class EE;
@@ -66,6 +68,12 @@ private:
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
     llvm::FunctionType* ee_write32_type;
     llvm::Function* ee_write32;
+    llvm::FunctionType* ee_write64_type;
+    llvm::Function* ee_write64;
+    llvm::FunctionType* ee_read128_type;
+    llvm::Function* ee_read128;
+    llvm::FunctionType* ee_write128_type;
+    llvm::Function* ee_write128;
 
     typedef void (EEJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, EE*);
 
@@ -94,4 +102,13 @@ private:
     void ee_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_srl(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_tlbwi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_jalr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sd(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_move(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_andi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mult(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_divu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };
