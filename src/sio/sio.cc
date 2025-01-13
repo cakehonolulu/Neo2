@@ -32,8 +32,11 @@ void SIO::write(uint32_t address, uint32_t value) {
             sio.BGR = value;
             break;
         case 0x1000F180:
+        {
+            printf("SIO TXFIFO write: 0x%08X\n", value);
             sio.TXFIFO = value;
             break;
+        }
         case 0x1000F1C0:
             sio.RXFIFO = value;
             break;
