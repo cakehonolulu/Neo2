@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <string>
 #include <iostream>
 #include <memory>
@@ -12,7 +13,8 @@ enum class LogLevel
     Warn,
     Debug,
     Error,
-	Raw
+	  Raw,
+    EE_LOG
 };
 
 class LogBackend
@@ -33,6 +35,7 @@ class Logger
     static void error(const std::string &message);
 
     static void raw(const std::string &message);
+    static void ee_log(const std::string &message);
 
     static void add_backend(std::shared_ptr<LogBackend> backend);
     static void remove_backend(std::shared_ptr<LogBackend> backend);
@@ -49,4 +52,5 @@ class Logger
     static const char *level_to_string(LogLevel level);
 
     static std::vector<std::shared_ptr<LogBackend>> backends;
+    static std::deque<std::string> ee_log_buffer;
 };

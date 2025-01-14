@@ -37,6 +37,8 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x03] = OpcodeEntry("jal", InstructionType::JType, true);
     opcode_mnemonics[0x04] = OpcodeEntry("beq", InstructionType::IType, true);
     opcode_mnemonics[0x05] = OpcodeEntry("bne", InstructionType::IType, true);
+    opcode_mnemonics[0x06] = OpcodeEntry("blez", InstructionType::IType, true);
+    opcode_mnemonics[0x07] = OpcodeEntry("bgtz", InstructionType::IType, true);
     opcode_mnemonics[0x08] = OpcodeEntry("addi", InstructionType::IType);
     opcode_mnemonics[0x09] = OpcodeEntry("addiu", InstructionType::IType);
     opcode_mnemonics[0x0A] = OpcodeEntry("slti", InstructionType::IType);
@@ -49,8 +51,9 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x20] = OpcodeEntry("lb", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);
     opcode_mnemonics[0x24] = OpcodeEntry("lbu", InstructionType::IType);
+    opcode_mnemonics[0x28] = OpcodeEntry("sb", InstructionType::IType);
     opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
-    opcode_mnemonics[0x37] = OpcodeEntry("sd", InstructionType::IType);
+    opcode_mnemonics[0x37] = OpcodeEntry("ld", InstructionType::IType);
     opcode_mnemonics[0x39] = OpcodeEntry("swc1", InstructionType::IType);
     opcode_mnemonics[0x3F] = OpcodeEntry("sd", InstructionType::IType);
 
@@ -60,9 +63,12 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x03] = OpcodeEntry("sra", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
+    extended_opcodes[0x0B] = OpcodeEntry("movn", InstructionType::RType);
     extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
+    extended_opcodes[0x10] = OpcodeEntry("mfhi", InstructionType::RType);
     extended_opcodes[0x12] = OpcodeEntry("mflo", InstructionType::RType);
     extended_opcodes[0x18] = OpcodeEntry("mult", InstructionType::RType);
+    extended_opcodes[0x1A] = OpcodeEntry("div", InstructionType::RType);
     extended_opcodes[0x1B] = OpcodeEntry("divu", InstructionType::RType);
     extended_opcodes[0x20] = OpcodeEntry("add", InstructionType::RType);
     extended_opcodes[0x21] = OpcodeEntry("addu", InstructionType::RType);
@@ -80,6 +86,8 @@ void Disassembler::initialize_opcode_table() {
     cop_opcode_tables[0x10][0x00] = OpcodeEntry("mfc0", InstructionType::IType);
     cop_opcode_tables[0x10][0x04] = OpcodeEntry("mtc0", InstructionType::IType);
     cop_opcode_tables[0x10][0x10] = OpcodeEntry("tlbwi", InstructionType::IType);
+
+    branch_opcodes[0x01] = OpcodeEntry("bgez", InstructionType::IType, true);
 }
 
 // Initialize pseudoinstructions
@@ -188,6 +196,28 @@ DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode
             }
             default:
                 break;
+        }
+    }
+    else if (function == 0x01) {
+        uint8_t subfunction = (opcode >> 16) & 0x1F;  // Extract the subfunction for branch type
+
+        // Check if this is a valid branch subfunction (like bgezal, bgez, etc.)
+        if (branch_opcodes.contains(subfunction)) {
+            auto branch_entry = branch_opcodes[subfunction];
+            data.mnemonic = branch_entry.mnemonic;
+
+            uint8_t rs = (opcode >> 21) & 0x1F;  // Extract rs (for branch instructions)
+            int16_t imm = opcode & 0xFFFF;       // Immediate value (offset)
+
+            // Populate operands
+            data.operands.push_back({"$" + mips_register_names[rs], rs});
+            data.operands.push_back({format("{:X}", static_cast<uint32_t>(imm)), static_cast<uint32_t>(imm)});
+
+            // Set jump target
+            uint32_t target = pc + (imm << 2);  // PC-relative jump target
+            data.jump_target = target;
+        } else {
+            data.mnemonic = format("UNKNOWN BRANCH (subfunction 0x{:X})", subfunction);
         }
     }
     // Handle COP0-3 opcodes

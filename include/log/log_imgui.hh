@@ -22,6 +22,7 @@ class ImGuiLogBackend : public LogBackend
     };
 
     std::deque<LogEntry> log_entries;
+    std::deque<LogEntry> ee_log_entries;
     std::mutex log_mutex;
 
     static ImVec4 get_color_for_level(LogLevel level);
