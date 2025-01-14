@@ -43,8 +43,6 @@ void SIO::write(uint32_t address, uint32_t value) {
                 ee_tx_buffer += transmitted_char;
             }
 
-            printf("%c", value);
-
             break;
         }
         case 0x1000F1C0:
