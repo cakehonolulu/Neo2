@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 // SIO Registers
 struct SIORegisters {
@@ -20,4 +21,6 @@ public:
 
     static void write(uint32_t address, uint32_t value);
     static uint32_t read(uint32_t address);
+
+    static std::string ee_tx_buffer;
 };

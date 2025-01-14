@@ -2,6 +2,7 @@
 
 #include <cpu/disassembler.hh>
 #include <frontends/imgui/imgui_neo2.h>
+#include <imgui_memory_editor.h>
 #include <unordered_set>
 
 class ImGuiDebug {
@@ -17,6 +18,7 @@ class ImGuiDebug {
     bool has_breakpoint(uint32_t address, CPU& cpu);
     void render_breakpoints(const char* window_name, CPU* cpu);
     void render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset);
+    void render_memory_view(Bus *bus);
 
     std::unordered_set<uint32_t> ee_breakpoints;
     std::unordered_set<uint32_t> iop_breakpoints;
@@ -26,6 +28,8 @@ class ImGuiDebug {
     int scroll_offset_ee = 0;
     int scroll_offset_iop = 0;
     bool error_state_active = false;
+
+    MemoryEditor mem_edit;
 
   private:
     ImGui_Neo2& neo2;

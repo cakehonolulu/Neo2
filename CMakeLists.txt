@@ -29,5 +29,7 @@ add_subdirectory(external/argparse)
 
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/argparse/include)
+target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/imgui_club/imgui_memory_editor)
+
 target_link_libraries(neo2 PRIVATE LLVM)
 target_link_options(neo2 PRIVATE -Wl,--export-dynamic)

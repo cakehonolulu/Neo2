@@ -10,6 +10,7 @@ using fmt::format;
 #endif
 
 SIORegisters SIO::sio = {};
+std::string SIO::ee_tx_buffer;
 
 void SIO::write(uint32_t address, uint32_t value) {
     switch (address) {
@@ -33,8 +34,17 @@ void SIO::write(uint32_t address, uint32_t value) {
             break;
         case 0x1000F180:
         {
-            printf("SIO TXFIFO write: 0x%08X\n", value);
             sio.TXFIFO = value;
+            char transmitted_char = static_cast<char>(value);
+            if (transmitted_char == '\n') {
+                Logger::ee_log(ee_tx_buffer);
+                ee_tx_buffer.clear();
+            } else {
+                ee_tx_buffer += transmitted_char;
+            }
+
+            printf("%c", value);
+
             break;
         }
         case 0x1000F1C0:
@@ -45,6 +55,7 @@ void SIO::write(uint32_t address, uint32_t value) {
             break;
     }
 }
+
 
 uint32_t SIO::read(uint32_t address) {
     switch (address) {

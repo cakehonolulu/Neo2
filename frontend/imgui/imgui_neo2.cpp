@@ -55,8 +55,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     static bool show_bus_debug = false;
 
-    static bool show_ee_breakpoints = false;
-    static bool show_iop_breakpoints = false;
+    static bool show_ram_view = false;
 
     argparse::ArgumentParser program("Neo2");
 
@@ -199,6 +198,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
 
                 ImGui::MenuItem("Show Bus Debug", nullptr, &show_bus_debug);
+                ImGui::MenuItem("Show RAM View", nullptr, &show_ram_view);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -259,6 +259,10 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         if (show_bus_debug) {
             debug_interface.render_bus_info("Bus Info", bus);
+        }
+
+        if (show_ram_view) {
+            debug_interface.render_memory_view(&bus);
         }
 
         // Handle the file dialog for loading BIOS

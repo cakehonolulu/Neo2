@@ -9,10 +9,19 @@ void ImGuiLogBackend::log(const std::string &message, LogLevel level)
     ImVec4 fg_color, bg_color;
     parse_colors_from_message(parsed_message, level, fg_color, bg_color);
 
-    log_entries.push_back({level, parsed_message, fg_color, bg_color, false});
+    if (level == LogLevel::EE_LOG) {
+        ee_log_entries.push_back({level, parsed_message, fg_color, bg_color, false});
+    } else {
+        log_entries.push_back({level, parsed_message, fg_color, bg_color, false});
+    }
 
+    // Optional: Limit size of the log buffers
     if (log_entries.size() > 1000) {
         log_entries.pop_front();
+    }
+
+    if (ee_log_entries.size() > 100) {
+        ee_log_entries.pop_front();  // Limit EE log buffer size
     }
 }
 
@@ -93,6 +102,35 @@ void ImGuiLogBackend::render()
     ImGui::Begin("Logger");
 
     for (const auto &entry : log_entries) {
+        if (entry.special) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+        }
+
+        if (entry.bg_color.w > 0) {
+            ImVec2 text_size = ImGui::CalcTextSize(entry.message.c_str());
+            ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                cursor_pos,
+                ImVec2(cursor_pos.x + text_size.x, cursor_pos.y + text_size.y),
+                ImGui::ColorConvertFloat4ToU32(entry.bg_color)
+            );
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Text, entry.fg_color);
+        ImGui::TextUnformatted(entry.message.c_str());
+        ImGui::PopStyleColor();
+
+        if (entry.special) {
+            ImGui::PopStyleVar();
+        }
+    }
+
+    ImGui::End();
+
+    ImGui::Begin("EE Logs");
+
+    for (const auto &entry : ee_log_entries) {
         if (entry.special) {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         }

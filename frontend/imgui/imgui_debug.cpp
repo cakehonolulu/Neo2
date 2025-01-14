@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <sstream>
 #include <unordered_map>
+#include "ImGuiFileDialog.h"
 
 #if __has_include(<format>)
 #include <format>
@@ -45,6 +46,52 @@ std::unordered_map<int, uint128_t> previous_ee_registers;
 std::unordered_map<int, std::uint32_t> previous_iop_registers;
 std::unordered_map<int, float> ee_register_change_timers;
 std::unordered_map<int, float> iop_register_change_timers;
+
+void ImGuiDebug::render_memory_view(Bus *bus) {
+    ImGui::Begin("RAM View");
+
+    ImGui::Text("RAM View");
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Save RAM Dump")) {
+        ImGuiFileDialog::Instance()->OpenDialog("SaveRAMDump", "Save RAM Dump", ".bin");
+    }
+
+    if (ImGuiFileDialog::Instance()->Display("SaveRAMDump")) {
+        if (ImGuiFileDialog::Instance()->IsOk()) {
+            std::string save_path = ImGuiFileDialog::Instance()->GetFilePathName();
+            std::ofstream file(save_path, std::ios::out | std::ios::binary);
+            file.write(reinterpret_cast<const char*>(bus->ram.data()), bus->ram.size());
+            file.close();
+        }
+        ImGuiFileDialog::Instance()->Close();
+    }
+
+    ImGui::Separator();
+
+    // Textbox to enter a virtual address and call bus map_to_phys to get the phys address
+    static char address_buffer[9] = "00000000";
+
+    if (ImGui::InputText("Virtual Address", address_buffer, sizeof(address_buffer), ImGuiInputTextFlags_CharsHexadecimal)) {
+        // Ensure the buffer is null-terminated
+        address_buffer[8] = '\0';
+    }
+    
+    ImGui::SameLine();
+
+    // Button that calls map_to_phys and displays the physical address
+    if (ImGui::Button("Map to Physical Address")) {
+        uint32_t vaddr = std::stoul(address_buffer, nullptr, 16);
+        uint32_t paddr = bus->map_to_phys(vaddr, bus->tlb);
+        Logger::info("Virtual Address 0x" + std::string(address_buffer) + " maps to Physical Address 0x" + format("{:08X}", paddr));
+    }
+
+    mem_edit.DrawContents(bus->ram.data(), bus->ram.size());
+
+    ImGui::Separator();
+    ImGui::End();
+}
 
 void ImGuiDebug::render_jit_blocks(const char* window_name, CPU& cpu) {
     ImGui::BeginChild(window_name, ImVec2(0, ImGui::GetContentRegionAvail().y), true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -191,7 +238,7 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     ImGui::Columns(2, nullptr, false); // Two columns, no border
 
     // Set the width of the first column (Disassembly)
-    ImGui::SetColumnWidth(0, 400); // Set the disassembly column to a fixed width, e.g., 300 pixels
+    ImGui::SetColumnWidth(0, 400); // Set the disassembly column to a fixed width
 
     // Disassembly Section - Left Column
     ImGui::BeginGroup();  // Start a new group for the Disassembly Section
@@ -275,6 +322,32 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     ImGui::Text("Registers");
     ImGui::SeparatorEx(ImGuiSeparatorFlags_Horizontal);
 
+    // Variables to hold the selected register and its new value
+    static int selected_register = -1;
+    static char new_value[128] = "";
+
+    // Lambda to render register with optional input field
+    auto render_register = [&](const char* label, uint64_t value, int reg_index = -1) {
+        ImGui::Text("%s: 0x%016llX", label, value);
+        if (ImGui::IsItemClicked()) {
+            selected_register = reg_index;
+            snprintf(new_value, sizeof(new_value), "%016llX", value);
+        }
+
+        if (selected_register == reg_index) {
+            ImGui::InputText("##edit", new_value, sizeof(new_value), ImGuiInputTextFlags_CharsHexadecimal);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                value = strtoull(new_value, nullptr, 16);
+                if (auto* ee = dynamic_cast<EE*>(cpu)) {
+                    ee->registers[reg_index].u128 = value;
+                } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
+                    iop->registers[reg_index] = value;
+                }
+                selected_register = -1; // Deselect the register after editing
+            }
+        }
+    };
+
     if (auto* ee = dynamic_cast<EE*>(cpu)) {
         ImGui::Text("EE PC: 0x%08X (%08X)", ee->pc, ee->next_pc);
         ImGui::Text("LO: 0x%08X", ee->lo);
@@ -295,7 +368,7 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
                 }
                 ImVec4 color = ImVec4(1.0f, 1.0f - ee_register_change_timers[i], 1.0f - ee_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                ImGui::Text("%-3s: 0x%016llX%016llX", mips_register_names[i].c_str(), current_value.u64[1], current_value.u64[0]);
+                render_register(mips_register_names[i].c_str(), current_value.u64[0], i); // Use the lambda to render registers
                 ImGui::PopStyleColor();
                 if (ee_register_change_timers[i] > 0.0f) {
                     ee_register_change_timers[i] -= ImGui::GetIO().DeltaTime;
@@ -311,8 +384,8 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
                 }
                 ImVec4 color = ImVec4(1.0f, 1.0f - iop_register_change_timers[i], 1.0f - iop_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                ImGui::Text("%-3s: 0x%08X", mips_register_names[i].c_str(), current_value);
-                ImGui::PopStyleColor();
+                render_register(mips_register_names[i].c_str(), current_value, i); // Use the lambda to render registers
+                                ImGui::PopStyleColor();
                 if (iop_register_change_timers[i] > 0.0f) {
                     iop_register_change_timers[i] -= ImGui::GetIO().DeltaTime;
                 }
@@ -367,7 +440,6 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
             ImGui::BulletText("IOP: 0x%08X", bp);
         }
     }
-
 
     ImGui::EndGroup();  // End Registers Section
 

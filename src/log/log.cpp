@@ -3,6 +3,7 @@
 
 std::string Logger::current_subsystem = "";
 std::vector<std::shared_ptr<LogBackend>> Logger::backends;
+std::deque<std::string> Logger::ee_log_buffer;
 
 void Logger::set_subsystem(const std::string &subsystem)
 {
@@ -34,6 +35,19 @@ void Logger::raw(const std::string &message)
     for (const auto &backend : backends)
     {
         backend->log(message, LogLevel::Raw);
+    }
+}
+
+void Logger::ee_log(const std::string &message)
+{
+    for (const auto &backend : backends)
+    {
+        backend->log(message, LogLevel::EE_LOG);
+    }
+
+    ee_log_buffer.push_back(message);
+    if (ee_log_buffer.size() > 100) {
+        ee_log_buffer.pop_front();
     }
 }
 

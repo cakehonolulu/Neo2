@@ -67,6 +67,8 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::ExecutionEngine> executionEngine;
 
+    llvm::FunctionType* ee_write8_type;
+    llvm::Function* ee_write8;
     llvm::FunctionType* ee_write32_type;
     llvm::Function* ee_write32;
     llvm::FunctionType* ee_write64_type;
@@ -128,4 +130,14 @@ private:
     void ee_jit_addu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_ld(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_j(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sb(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_bgez(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_div(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mfhi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sltu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_movn(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_blez(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_subu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_bgtz(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };
