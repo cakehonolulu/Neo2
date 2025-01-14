@@ -36,7 +36,7 @@ void SIO::write(uint32_t address, uint32_t value) {
         {
             sio.TXFIFO = value;
             char transmitted_char = static_cast<char>(value);
-            if (transmitted_char == '\n') {
+            if (transmitted_char == 0x0D) {
                 Logger::ee_log(ee_tx_buffer);
                 ee_tx_buffer.clear();
             } else {
