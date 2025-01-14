@@ -1478,7 +1478,7 @@ void EEJIT::ee_jit_ld(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
 
     // Store the loaded value into register rt (64-bit double register)
     builder->CreateStore(value_to_load, builder->CreateGEP(
-        builder->getInt128Ty(), gpr_base, builder->getInt32(rt * 2) // GPR uses 128-bit registers (2 * 64-bit)
+        builder->getInt128Ty(), gpr_base, builder->getInt32(rt) // GPR uses 128-bit registers (2 * 64-bit)
     ));
     
     // Emit the update to PC after this operation
