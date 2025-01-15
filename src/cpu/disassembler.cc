@@ -80,7 +80,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x27] = OpcodeEntry("nor", InstructionType::RType);
     extended_opcodes[0x2A] = OpcodeEntry("slt", InstructionType::RType);
     extended_opcodes[0x2B] = OpcodeEntry("sltu", InstructionType::RType);
-    extended_opcodes[0x2D] = OpcodeEntry("move", InstructionType::RType);
+    extended_opcodes[0x2D] = OpcodeEntry("dmove", InstructionType::RType);
 
     // COP0 opcode table
     cop_opcode_tables[0x10][0x00] = OpcodeEntry("mfc0", InstructionType::IType);
