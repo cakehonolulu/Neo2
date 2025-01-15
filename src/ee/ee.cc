@@ -69,10 +69,11 @@ void EE::reset() {
     std::memset(registers, 0, sizeof(registers));
     std::memset(cop0_registers, 0, sizeof(cop0_registers));
     std::memset(fpr, 0, sizeof(fpr));
-    lo = 0;
-    hi = 0;
+    lo.u128 = 0;
+    hi.u128 = 0;
 
     cop0_registers[15] = 0x59;
+    //cop0_registers[15] = 0x2E20;
 };
 
 std::uint32_t EE::fetch_opcode()

@@ -189,7 +189,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x23] = &EEJIT::ee_jit_subu; // SUBU opcode
     opcode_table[0x00].funct3_map[0x25] = &EEJIT::ee_jit_or; // OR opcode
     opcode_table[0x00].funct3_map[0x2B] = &EEJIT::ee_jit_sltu; // SLTU opcode
-    opcode_table[0x00].funct3_map[0x2D] = &EEJIT::ee_jit_move; // MOVE opcode
+    opcode_table[0x00].funct3_map[0x2D] = &EEJIT::ee_jit_dmove; // DMOVE opcode
 
     opcode_table[0x01].funct3_map[0x01] = &EEJIT::ee_jit_bgez;  // BGEZ opcode
 
@@ -468,11 +468,28 @@ void EEJIT::ee_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
     uint8_t rs = (opcode >> 21) & 0x1F;
     int16_t imm = static_cast<int16_t>(opcode & 0xFFFF); // Sign-extend immediate value
 
-    llvm::Value* gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)), llvm::PointerType::getUnqual(builder->getInt32Ty()));
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
-    llvm::Value* imm_value = builder->getInt32(imm);
-    llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4))
+    );
+
+    // Sign-extend the immediate value to 64 bits
+    llvm::Value* imm_value = builder->CreateSExt(builder->getInt32(imm), builder->getInt64Ty());
+    llvm::Value* rs_value_64 = builder->CreateSExt(rs_value, builder->getInt64Ty());
+
+    llvm::Value* result = builder->CreateAdd(rs_value_64, imm_value);
+
+    llvm::Value* rt_ptr = builder->CreateGEP(
+        builder->getInt32Ty(),
+        gpr_base,
+        builder->getInt32(rt * 4)
+    );
+
     builder->CreateStore(result, rt_ptr);
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
@@ -617,8 +634,12 @@ void EEJIT::ee_jit_lui(std::uint32_t opcode, uint32_t& current_pc, bool& is_bran
     );
 
     llvm::Value* imm_value = builder->CreateShl(builder->getInt32(imm), builder->getInt32(16));
+
+    // Sign-extend imm_value to 64 bits
+    llvm::Value* imm_value_64 = builder->CreateSExt(imm_value, builder->getInt64Ty());
+
     llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
-    builder->CreateStore(imm_value, rt_ptr);
+    builder->CreateStore(imm_value_64, rt_ptr);
 
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
@@ -853,31 +874,20 @@ void EEJIT::ee_jit_sd(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
 
-void EEJIT::ee_jit_move(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract the destination register (rd)
-    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract the source register (rs)
+void EEJIT::ee_jit_dmove(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
 
-    // Handle 128-bit register access for rs and rd
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
+        llvm::PointerType::getUnqual(builder->getInt64Ty()) // Note: 64-bit pointers
     );
 
-    // Load the value from the source register (rs)
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4) // GPR uses 32-bit registers
-    ));
+    llvm::Value* rs_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 2));
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt64Ty(), rs_ptr);
 
-    // Store the value to the destination register (rd)
-    llvm::Value* rd_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
-    );
-
-    // Store the value of rs into rd
-    builder->CreateStore(rs_value, builder->CreateGEP(
-        builder->getInt32Ty(), rd_base, builder->getInt32(rd * 4) // GPR uses 32-bit registers
-    ));
+    llvm::Value* rd_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2));
+    builder->CreateStore(rs_value, rd_ptr);
 
     // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
@@ -919,36 +929,39 @@ void EEJIT::ee_jit_andi(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     // Extract registers and immediate from the opcode
     uint8_t rt = (opcode >> 16) & 0x1F;  // Extract RT (bits 16-20)
     uint8_t rs = (opcode >> 21) & 0x1F;  // Extract RS (bits 21-25)
-    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);  // Extract and sign-extend immediate value (bits 0-15)
+    uint16_t imm = opcode & 0xFFFF;  // Extract the immediate value (bits 0-15)
 
     // Create pointers to the general-purpose registers (GPR)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
 
     // Load the value from the RS register
     llvm::Value* rs_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4))
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 8))  // 8 bytes offset for 64-bit registers
     );
 
-    // Convert the immediate value to a 32-bit integer
-    llvm::Value* imm_value = builder->getInt32(imm);
+    // Zero-extend the immediate value to 64 bits
+    llvm::Value* imm_value = builder->getInt64(imm);
 
     // Perform the bitwise AND operation
     llvm::Value* result = builder->CreateAnd(rs_value, imm_value);
 
     // Store the result in the RT register
     llvm::Value* rt_ptr = builder->CreateGEP(
-        builder->getInt32Ty(),
+        builder->getInt64Ty(),
         gpr_base,
-        builder->getInt32(rt * 4)
+        builder->getInt64(rt * 2)
     );
     builder->CreateStore(result, rt_ptr);
 
     // Emit the program counter update
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
+
+    // No branching, so set is_branch to false
+    is_branch = false;
 }
 
 void EEJIT::ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
@@ -995,11 +1008,12 @@ void EEJIT::ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
 void EEJIT::ee_jit_mult(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
     uint8_t rs = (opcode >> 21) & 0x1F;  // Extract RS (bits 21-25)
     uint8_t rt = (opcode >> 16) & 0x1F;  // Extract RT (bits 16-20)
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
 
     // Load values from registers
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Note: 32-bit pointers for individual registers
     );
 
     llvm::Value* rs_value = builder->CreateLoad(
@@ -1012,23 +1026,40 @@ void EEJIT::ee_jit_mult(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4))
     );
 
-    // Perform multiplication
-    llvm::Value* product = builder->CreateMul(rs_value, rt_value);
+    // Sign-extend to 64 bits
+    llvm::Value* rs_value_64 = builder->CreateSExt(rs_value, builder->getInt64Ty());
+    llvm::Value* rt_value_64 = builder->CreateSExt(rt_value, builder->getInt64Ty());
 
-    // Store the low 32 bits of the result in the LO register (lo)
+    // Perform 64-bit signed multiplication
+    llvm::Value* product = builder->CreateMul(rs_value_64, rt_value_64);
+
+    // Extract the low 32 bits and store them in LO
     llvm::Value* lo_ptr = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
-    builder->CreateStore(product, lo_ptr);
+    llvm::Value* lo_value = builder->CreateTrunc(product, builder->getInt32Ty());
+    builder->CreateStore(lo_value, lo_ptr);
 
-    // Store the high 32 bits of the result in the HI register (hi)
+    // Extract the high 32 bits and store them in HI
     llvm::Value* hi_ptr = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
-    llvm::Value* hi_value = builder->CreateLShr(product, builder->getInt32(32));
+    llvm::Value* hi_value = builder->CreateTrunc(builder->CreateLShr(product, builder->getInt64(32)), builder->getInt32Ty());
     builder->CreateStore(hi_value, hi_ptr);
+
+    // Conditionally store the low 32 bits of the result in GPR[rd] if rd is not zero
+    llvm::Value* zero = builder->getInt32(0);
+    llvm::Value* rd_not_zero = builder->CreateICmpNE(builder->getInt32(rd), zero);
+    
+    llvm::Value* rd_ptr = builder->CreateGEP(
+        builder->getInt32Ty(),
+        gpr_base,
+        builder->getInt32(rd * 4)
+    );
+    llvm::Value* select_value = builder->CreateSelect(rd_not_zero, lo_value, builder->getInt32(0));
+    builder->CreateStore(select_value, rd_ptr);
 
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
     is_branch = false;
@@ -1124,26 +1155,27 @@ void EEJIT::ee_jit_beql(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 void EEJIT::ee_jit_mflo(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
     uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
 
-    // Load the value from the LO register
-    llvm::Value* lo_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateIntToPtr(
-            builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
-            llvm::PointerType::getUnqual(builder->getInt32Ty())
-        )
+    // Load the lower 64 bits from the LO register
+    llvm::Value* lo_value_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
+
+    llvm::Value* lo_value = builder->CreateLoad(builder->getInt64Ty(), lo_value_ptr);
 
     // Load the base address for the registers
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
 
     // Store the LO value into the destination register (RD)
-    builder->CreateStore(
-        lo_value,
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd * 4))
+    llvm::Value* rd_ptr = builder->CreateGEP(
+        builder->getInt64Ty(),
+        gpr_base,
+        builder->getInt64(rd * 2)
     );
+    builder->CreateStore(lo_value, rd_ptr);
 
     EMIT_EE_UPDATE_PC(core, builder, current_pc);  // Update PC
     is_branch = false;  // No branch
@@ -1212,28 +1244,55 @@ void EEJIT::ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     // Create the condition: rs != rt (inequality comparison)
     llvm::Value* condition = builder->CreateICmpNE(rs_value, rt_value);
 
-    // Calculate the branch target address (current_pc + (immediate * 4 + 4))
-    llvm::Value* branch_target = builder->CreateAdd(
-        builder->getInt32(current_pc + 4),
-        builder->CreateShl(builder->getInt32(immediate), 2)  // immediate * 4
+    // Compute the branch destination address
+    llvm::Value* branch_offset = builder->CreateSExt(
+        builder->getInt32(immediate), builder->getInt64Ty()
+    );
+    llvm::Value* branch_dest = builder->CreateAdd(
+        builder->getInt64(current_pc), builder->CreateMul(branch_offset, builder->getInt64(4))
     );
 
-    // Update the PC based on the comparison result (branch taken or not)
+    llvm::Value* branch_dest_ = builder->CreateAdd(branch_dest, builder->getInt64(4));
+
+    // Update the program counter
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 
-    // If the branch is taken, update the branch destination and set branching to true
-    builder->CreateStore(
-        builder->CreateSelect(condition, branch_target, builder->getInt32(current_pc + 4)),
-        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty()))
+    llvm::Value* pc_ptr = builder->CreateIntToPtr( 
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->pc)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
+    );
+    
+    llvm::Value* pc_value = builder->CreateLoad(
+        builder->getInt64Ty(),
+        pc_ptr
     );
 
-    // Set the branching flag
-    builder->CreateStore(
-        builder->CreateSelect(condition, builder->getInt1(true), builder->getInt1(false)),
-        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty()))
+    llvm::Value* new_pc_value = builder->CreateSelect(
+        condition,
+        pc_value,
+        builder->CreateAdd(pc_value, builder->getInt32(4))
     );
-    // If the branch is taken, set is_branch to true
-    is_branch = builder->CreateSelect(condition, builder->getInt1(true), builder->getInt1(false));
+
+    builder->CreateStore(new_pc_value, pc_ptr);
+
+    // Update branching information in LLVM IR
+    llvm::Value* branching_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+        llvm::PointerType::getUnqual(builder->getInt1Ty())
+    );
+    builder->CreateStore(condition, branching_ptr);
+
+    llvm::Value* branch_dest_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
+    );
+    builder->CreateStore(branch_dest_, branch_dest_ptr);
+
+    llvm::Value* is_branch_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&is_branch)),
+        llvm::PointerType::getUnqual(builder->getInt1Ty())
+    );
+    builder->CreateStore(condition, is_branch_ptr);
 }
 
 void EEJIT::ee_jit_lb(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
@@ -1264,56 +1323,67 @@ void EEJIT::ee_jit_lb(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
         addr_value
     });
 
-    // Zero-extend the byte value to 32 bits
-    llvm::Value* extended_value = builder->CreateZExt(value_to_load, builder->getInt32Ty());
+    // Cast the loaded value to 8 bits to ensure correct zero-extension
+    llvm::Value* byte_value = builder->CreateTrunc(value_to_load, builder->getInt8Ty());
 
-    // Store the loaded value into register rt
-    builder->CreateStore(extended_value, builder->CreateGEP(
-        builder->getInt8Ty(), gpr_base, builder->getInt32(rt * 16)
-    ));
-    
+    // Zero-extend the fetched byte
+    llvm::Value* sign_extended_value = builder->CreateSExt(byte_value, builder->getInt64Ty());
+
+    // Store the zero-extended value in the rt register
+    llvm::Value* rt_ptr = builder->CreateGEP(
+        builder->getInt64Ty(),
+        gpr_base,
+        builder->getInt32(rt * 2)
+    );
+    builder->CreateStore(sign_extended_value, rt_ptr);
+
     // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
+    is_branch = false;
 }
 
 void EEJIT::ee_jit_lbu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
-    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+    uint8_t base = (opcode >> 21) & 0x1F;  // Extract BASE (bits 21-25)
+    uint8_t rt = (opcode >> 16) & 0x1F;    // Extract RT (bits 16-20)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);  // Extract OFFSET (bits 0-15)
 
-    // Handle 128-bit register access for rs (base register)
+    // Load the base register value
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt8Ty()) // Each register is 8-bit
+        llvm::PointerType::getUnqual(builder->getInt32Ty())  // 32-bit pointers for individual registers
     );
-    
-    // Load the base register value (rs) from the GPR array
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4) // GPR uses 32-bit (4 bytes) offset
-    ));
-    
-    // Offset is a 16-bit signed immediate, so extend it to 32-bit
-    llvm::Value* offset_value = builder->getInt32(offset);
-    
-    // Calculate the effective address: addr = base + offset
-    llvm::Value* addr_value = builder->CreateAdd(rs_value, offset_value);
+    llvm::Value* base_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(base * 4))
+    );
 
-    // Call read8: read8(core, addr)
+    // Calculate the effective address
+    llvm::Value* offset_value = builder->getInt32(offset);
+    llvm::Value* addr_value = builder->CreateAdd(base_value, offset_value);
+
+    // Call read8 to fetch the byte from memory
     llvm::Value* value_to_load = builder->CreateCall(ee_read8, {
         llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), 
         addr_value
     });
-    
-    // Zero-extend the loaded value to 32-bit
-    llvm::Value* zero_extended_value = builder->CreateZExt(value_to_load, builder->getInt32Ty());
-    
-    // Store the zero-extended value into register rt
-    builder->CreateStore(zero_extended_value, builder->CreateGEP(
-        builder->getInt8Ty(), gpr_base, builder->getInt32(rt * 16)
-    ));
-    
+
+    // Cast the loaded value to 8 bits to ensure correct zero-extension
+    llvm::Value* byte_value = builder->CreateTrunc(value_to_load, builder->getInt8Ty());
+
+    // Zero-extend the fetched byte
+    llvm::Value* zero_extended_value = builder->CreateZExt(byte_value, builder->getInt64Ty());
+
+    // Store the zero-extended value in the rt register
+    llvm::Value* rt_ptr = builder->CreateGEP(
+        builder->getInt64Ty(),
+        gpr_base,
+        builder->getInt32(rt * 2)
+    );
+    builder->CreateStore(zero_extended_value, rt_ptr);
+
     // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
+    is_branch = false;
 }
 
 void EEJIT::ee_jit_swc1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
@@ -1352,31 +1422,38 @@ void EEJIT::ee_jit_swc1(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 }
 
 void EEJIT::ee_jit_sra(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    uint8_t rd = (opcode >> 11) & 0x1F; // Extract destination register (rd)
-    uint8_t rt = (opcode >> 16) & 0x1F; // Extract source register (rt)
-    uint8_t sa = (opcode >> 6) & 0x1F;  // Extract shift amount (sa)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract RT (bits 16-20)
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
+    uint8_t sa = (opcode >> 6) & 0x1F;   // Extract SA (bits 6-10)
 
-    // Handle the GPR array
+    // Load the rt register value
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
+        llvm::PointerType::getUnqual(builder->getInt32Ty())  // 32-bit pointers for individual registers
+    );
+    llvm::Value* rt_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4))
     );
 
-    // Load the value from the source register (rt)
-    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)
-    ));
+    // Perform arithmetic right shift
+    llvm::Value* shift_amount = builder->getInt32(sa);
+    llvm::Value* shifted_value = builder->CreateAShr(rt_value, shift_amount);
 
-    // Perform the arithmetic right shift (sign-extended)
-    llvm::Value* shifted_value = builder->CreateAShr(rt_value, builder->getInt32(sa));
+    // Sign-extend the result
+    llvm::Value* sign_extended_value = builder->CreateSExt(shifted_value, builder->getInt64Ty());
 
-    // Store the result into the destination register (rd)
-    builder->CreateStore(shifted_value, builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rd * 4)
-    ));
+    // Store the result in the rd register
+    llvm::Value* rd_ptr = builder->CreateGEP(
+        builder->getInt32Ty(),
+        gpr_base,
+        builder->getInt32(rd * 4)
+    );
+    builder->CreateStore(sign_extended_value, rd_ptr);
 
     // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
+    is_branch = false;
 }
 
 void EEJIT::ee_jit_addu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
@@ -1402,9 +1479,12 @@ void EEJIT::ee_jit_addu(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     // Perform the addition (unsigned addition is the same as signed addition)
     llvm::Value* result = builder->CreateAdd(rs_value, rt_value);
 
+    // Sign-extend imm_value to 64 bits
+    llvm::Value* result_se_64 = builder->CreateSExt(result, builder->getInt64Ty());
+
     // Store the result into the destination register (rd)
-    builder->CreateStore(result, builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rd * 4)
+    builder->CreateStore(result_se_64, builder->CreateGEP(
+        builder->getInt64Ty(), gpr_base, builder->getInt32(rd * 2)
     ));
 
     // Emit the update to PC after this operation
@@ -1438,10 +1518,14 @@ void EEJIT::ee_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
         llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
         addr_value
     });
-    
+
+
+    // Sign-extend imm_value to 64 bits
+    llvm::Value* result_se_64 = builder->CreateSExt(value_to_load, builder->getInt64Ty());
+
     // Store the loaded value into register rt
-    builder->CreateStore(value_to_load, builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)
+    builder->CreateStore(result_se_64, builder->CreateGEP(
+        builder->getInt64Ty(), gpr_base, builder->getInt32(rt * 2)
     ));
     
     // Emit the update to PC after this operation
@@ -1633,26 +1717,27 @@ void EEJIT::ee_jit_div(std::uint32_t opcode, uint32_t& current_pc, bool& is_bran
 void EEJIT::ee_jit_mfhi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
     uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
 
-    // Load the value from the HI register
-    llvm::Value* hi_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateIntToPtr(
-            builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
-            llvm::PointerType::getUnqual(builder->getInt32Ty())
-        )
+    // Load the lower 64 bits from the HI register
+    llvm::Value* hi_value_ptr = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
+
+    llvm::Value* hi_value = builder->CreateLoad(builder->getInt64Ty(), hi_value_ptr);
 
     // Load the base address for the registers
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
 
     // Store the HI value into the destination register (RD)
-    builder->CreateStore(
-        hi_value,
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd * 4))
+    llvm::Value* rd_ptr = builder->CreateGEP(
+        builder->getInt64Ty(),
+        gpr_base,
+        builder->getInt64(rd * 2)
     );
+    builder->CreateStore(hi_value, rd_ptr);
 
     EMIT_EE_UPDATE_PC(core, builder, current_pc);  // Update PC
     is_branch = false;  // No branch
@@ -1701,32 +1786,33 @@ void EEJIT::ee_jit_movn(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     uint8_t rt = (opcode >> 16) & 0x1F;  // Extract RT (bits 16-20)
     uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
 
-    // Load the value from register GPR[rs] and GPR[rt]
+    // Load the base address of general-purpose registers (GPR)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
 
+    // Load the values from registers GPR[rs] and GPR[rt]
     llvm::Value* rs_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4))
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 8))  // 8 bytes offset for 64-bit registers
     );
 
     llvm::Value* rt_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4))
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 8))  // 8 bytes offset for 64-bit registers
     );
 
     // Check if the value in rs is non-zero
-    llvm::Value* condition = builder->CreateICmpNE(rs_value, builder->getInt32(0));
+    llvm::Value* condition = builder->CreateICmpNE(rs_value, builder->getInt64(0));
 
     // If rs is non-zero, move the value from rt to rd
-    llvm::Value* result = builder->CreateSelect(condition, rt_value, builder->getInt32(0)); // 0 if condition is false
+    llvm::Value* result = builder->CreateSelect(condition, rt_value, builder->getInt64(0));  // 0 if condition is false
 
     // Store the result into GPR[rd]
     builder->CreateStore(
         result,
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd * 4))
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 8))  // 8 bytes offset for 64-bit registers
     );
 
     // Update the program counter after the instruction is executed

@@ -327,6 +327,26 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     static char new_value[128] = "";
 
     // Lambda to render register with optional input field
+    auto render_register_ = [&](const char* label, __int128 value, int reg_index = -1) {
+        ImGui::Text("%s: 0x%032llX", label, value);
+        if (ImGui::IsItemClicked()) {
+            selected_register = reg_index;
+            snprintf(new_value, sizeof(new_value), "%032llX", value);
+        }
+
+        if (selected_register == reg_index) {
+            ImGui::InputText("##edit", new_value, sizeof(new_value), ImGuiInputTextFlags_CharsHexadecimal);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                value = strtoull(new_value, nullptr, 16);
+                if (auto* ee = dynamic_cast<EE*>(cpu)) {
+                    ee->registers[reg_index].u128 = value;
+                }
+                selected_register = -1; // Deselect the register after editing
+            }
+        }
+    };
+
+    // Lambda to render register with optional input field
     auto render_register = [&](const char* label, uint64_t value, int reg_index = -1) {
         ImGui::Text("%s: 0x%016llX", label, value);
         if (ImGui::IsItemClicked()) {
@@ -368,7 +388,7 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
                 }
                 ImVec4 color = ImVec4(1.0f, 1.0f - ee_register_change_timers[i], 1.0f - ee_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                render_register(mips_register_names[i].c_str(), current_value.u64[0], i); // Use the lambda to render registers
+                render_register_(mips_register_names[i].c_str(), current_value.u128, i); // Use the lambda to render registers
                 ImGui::PopStyleColor();
                 if (ee_register_change_timers[i] > 0.0f) {
                     ee_register_change_timers[i] -= ImGui::GetIO().DeltaTime;

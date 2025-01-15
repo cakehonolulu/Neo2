@@ -37,8 +37,8 @@ class EE : public CPU
     std::uint32_t cop0_registers[32];
     fpu_reg_t fpr[32];
 
-    std::uint32_t lo;
-    std::uint32_t hi;
+    uint128_t lo;
+    uint128_t hi;
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
