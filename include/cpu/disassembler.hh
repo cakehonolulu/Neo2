@@ -66,6 +66,7 @@ private:
     std::unordered_map<uint8_t, OpcodeEntry> extended_opcodes;
     std::unordered_map<uint8_t, std::unordered_map<uint8_t, OpcodeEntry>> cop_opcode_tables;
     std::unordered_map<uint8_t, OpcodeEntry> branch_opcodes;
+    std::unordered_map<uint8_t, OpcodeEntry> mmi_opcodes;
     std::vector<PseudoOpcode> pseudo_opcodes; // List of pseudoinstructions
 
     void initialize_opcode_table();

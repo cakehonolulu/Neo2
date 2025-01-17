@@ -39,9 +39,7 @@ IOP::IOP(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<
 IOP::~IOP() {}
 
 void IOP::run() {
-    while (!Neo2::is_aborted()) {
-        step();
-    }
+    run_();
 }
 
 void IOP::step() {
@@ -62,6 +60,11 @@ void IOP::reset() {
 
 std::uint32_t IOP::fetch_opcode() {
     return bus->read32(pc);
+}
+
+std::uint32_t IOP::fetch_opcode(std::uint32_t pc_)
+{
+    return bus->read32(pc_);
 }
 
 void IOP::parse_opcode(std::uint32_t opcode)
@@ -86,6 +89,7 @@ void IOP::set_backend(EmulationMode mode) {
         case EmulationMode::JIT:
             Logger::info("Switching IOP to JIT mode.");
             step_ = std::bind(&IOPJIT::step, jit.get());
+            run_ = std::bind(&IOPJIT::run, jit.get());
             break;
         default:
             Logger::error("Unsupported IOP mode.");

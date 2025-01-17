@@ -45,13 +45,16 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x0B] = OpcodeEntry("sltiu", InstructionType::IType);
     opcode_mnemonics[0x0C] = OpcodeEntry("andi", InstructionType::RType);
     opcode_mnemonics[0x0D] = OpcodeEntry("ori", InstructionType::IType);
+    opcode_mnemonics[0x0E] = OpcodeEntry("xori", InstructionType::IType);
     opcode_mnemonics[0x0F] = OpcodeEntry("lui", InstructionType::IType);
     opcode_mnemonics[0x14] = OpcodeEntry("beql", InstructionType::IType, true);
     opcode_mnemonics[0x15] = OpcodeEntry("bnel", InstructionType::IType, true);
     opcode_mnemonics[0x20] = OpcodeEntry("lb", InstructionType::IType);
     opcode_mnemonics[0x23] = OpcodeEntry("lw", InstructionType::IType);
     opcode_mnemonics[0x24] = OpcodeEntry("lbu", InstructionType::IType);
+    opcode_mnemonics[0x25] = OpcodeEntry("lhu", InstructionType::IType);
     opcode_mnemonics[0x28] = OpcodeEntry("sb", InstructionType::IType);
+    opcode_mnemonics[0x29] = OpcodeEntry("sh", InstructionType::IType);
     opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
     opcode_mnemonics[0x37] = OpcodeEntry("ld", InstructionType::IType);
     opcode_mnemonics[0x39] = OpcodeEntry("swc1", InstructionType::IType);
@@ -63,10 +66,12 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x03] = OpcodeEntry("sra", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
+    extended_opcodes[0x0A] = OpcodeEntry("movz", InstructionType::RType);
     extended_opcodes[0x0B] = OpcodeEntry("movn", InstructionType::RType);
     extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
     extended_opcodes[0x10] = OpcodeEntry("mfhi", InstructionType::RType);
     extended_opcodes[0x12] = OpcodeEntry("mflo", InstructionType::RType);
+    extended_opcodes[0x17] = OpcodeEntry("dsrav", InstructionType::RType);
     extended_opcodes[0x18] = OpcodeEntry("mult", InstructionType::RType);
     extended_opcodes[0x1A] = OpcodeEntry("div", InstructionType::RType);
     extended_opcodes[0x1B] = OpcodeEntry("divu", InstructionType::RType);
@@ -81,13 +86,19 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x2A] = OpcodeEntry("slt", InstructionType::RType);
     extended_opcodes[0x2B] = OpcodeEntry("sltu", InstructionType::RType);
     extended_opcodes[0x2D] = OpcodeEntry("dmove", InstructionType::RType);
+    extended_opcodes[0x3C] = OpcodeEntry("dsll32", InstructionType::RType);
+    extended_opcodes[0x3F] = OpcodeEntry("dsra32", InstructionType::RType);
 
     // COP0 opcode table
     cop_opcode_tables[0x10][0x00] = OpcodeEntry("mfc0", InstructionType::IType);
     cop_opcode_tables[0x10][0x04] = OpcodeEntry("mtc0", InstructionType::IType);
     cop_opcode_tables[0x10][0x10] = OpcodeEntry("tlbwi", InstructionType::IType);
 
+    branch_opcodes[0x00] = OpcodeEntry("bltz", InstructionType::IType, true);
     branch_opcodes[0x01] = OpcodeEntry("bgez", InstructionType::IType, true);
+
+    mmi_opcodes[0x12] = OpcodeEntry("mflo1", InstructionType::IType);
+    mmi_opcodes[0x1B] = OpcodeEntry("divu1", InstructionType::IType);
 }
 
 // Initialize pseudoinstructions
@@ -242,6 +253,26 @@ DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode
             }
         } else {
             data.mnemonic = format("UNKNOWN COP{} (rs 0x{:X})", function - 0x10, cop_function);
+        }
+    }
+    else if (function == 0x1C) {
+        uint8_t subfunction = opcode & 0x1F;  // Extract the subfunction for MMI
+
+        // Check if this is a valid MMI subfunction
+        if (mmi_opcodes.contains(subfunction)) {
+            auto mmi_entry = mmi_opcodes[subfunction];
+            data.mnemonic = mmi_entry.mnemonic;
+
+            // Operand processing for MMI instructions
+            uint8_t rd = (opcode >> 11) & 0x1F;
+            uint8_t rs = (opcode >> 21) & 0x1F;
+            uint8_t rt = (opcode >> 16) & 0x1F;
+
+            data.operands.push_back({"$" + mips_register_names[rd], rd});
+            data.operands.push_back({"$" + mips_register_names[rs], rs});
+            data.operands.push_back({"$" + mips_register_names[rt], rt});
+        } else {
+            data.mnemonic = format("UNKNOWN MMI (subfunction 0x{:X})", subfunction);
         }
     }
     // Handle extended opcodes (e.g., function == 0x00)

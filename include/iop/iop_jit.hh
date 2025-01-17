@@ -15,10 +15,6 @@
             builder->getInt64(reinterpret_cast<uint64_t>(&(core->pc))), \
             llvm::PointerType::getUnqual(builder->getInt32Ty()) \
         ); \
-        llvm::Value* next_pc_ptr = builder->CreateIntToPtr( \
-            builder->getInt64(reinterpret_cast<uint64_t>(&(core->next_pc))), \
-            llvm::PointerType::getUnqual(builder->getInt32Ty()) \
-        ); \
         llvm::Value* branching_ptr = builder->CreateIntToPtr( \
             builder->getInt64(reinterpret_cast<uint64_t>(&(core->branching))), \
             llvm::PointerType::getUnqual(builder->getInt1Ty()) \
@@ -29,10 +25,16 @@
         ); \
         llvm::Value* branching = builder->CreateLoad(builder->getInt1Ty(), branching_ptr); \
         llvm::Value* branch_dest = builder->CreateLoad(builder->getInt32Ty(), branch_dest_ptr); \
-        llvm::Value* new_pc = builder->CreateSelect(branching, branch_dest, builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4))); \
+        llvm::Value* new_pc; \
+        llvm::Value* updated_branching = builder->getInt1(false); \
+        llvm::Value* updated_pc = builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4)); \
+        new_pc = builder->CreateSelect( \
+            branching, \
+            branch_dest, \
+            updated_pc \
+        ); \
         builder->CreateStore(new_pc, pc_ptr); \
-        builder->CreateStore(builder->CreateAdd(new_pc, builder->getInt32(4)), next_pc_ptr); \
-        builder->CreateStore(builder->getInt1(false), branching_ptr); \
+        builder->CreateStore(updated_branching, branching_ptr); \
     } while (0)
 
 class IOP;
@@ -43,6 +45,7 @@ public:
     ~IOPJIT();
     std::unordered_map<uint32_t, CompiledBlock> block_cache;
     void execute_opcode(std::uint32_t opcode);
+    void execute_opcode_();
     void step();
     void run();
 
@@ -53,6 +56,7 @@ private:
     bool single_instruction_mode = false;
 
     CompiledBlock* compile_block(uint32_t pc, bool single_instruction);
+    CompiledBlock* compile_block_(uint32_t start_pc, bool single_instruction);
     void link_blocks();
     void evict_oldest_block();
     CompiledBlock* find_block(uint32_t pc);

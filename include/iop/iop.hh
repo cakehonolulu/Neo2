@@ -14,6 +14,7 @@ public:
     ~IOP();
 
     std::function<void()> step_;
+    std::function<void()> run_;
     void run() override;
     void step() override;
     void reset();
@@ -23,6 +24,7 @@ public:
     }
     
     std::uint32_t fetch_opcode() override;
+    std::uint32_t fetch_opcode(std::uint32_t pc_);
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
     void set_backend(EmulationMode mode);
@@ -33,6 +35,8 @@ public:
     std::uint32_t next_pc;
     bool branching = false;
     std::uint32_t branch_dest;
+
+    std::uint64_t cycles = 0;
 
     std::function<void(IOP*, std::uint32_t)> opcodes[256];
 

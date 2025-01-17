@@ -17,6 +17,10 @@ using std::format;
 using fmt::format;
 #endif
 
+std::uint32_t MCH_DRD = 0;
+std::uint32_t MCH_RICM = 0;
+std::uint32_t rdram_sdevid = 0;
+
 void Bus::fmem_init() {
     tlb = TLB(32);
 
@@ -87,8 +91,49 @@ T io_read(std::uint32_t address) {
             }
             break;
         }
+        
+        // EE RDRAM initialization
         case 0x1F801010:
             return static_cast<T>(0x0);
+
+        case 0x1000F400:
+        case 0x1000F410:
+        case 0x1000F420:
+        case 0x1000F430:
+            return static_cast<T>(0x0);
+
+        case 0x1000F440:
+        {
+            if constexpr (sizeof(T) == 4) {
+                uint8_t SOP = (MCH_RICM >> 6) & 0xF;
+                uint8_t SA = (MCH_RICM >> 16) & 0xFFF;
+                if (!SOP)
+                {
+                    switch (SA)
+                    {
+                    case 0x21:
+                        if (rdram_sdevid < 2)
+                        {
+                            rdram_sdevid++;
+                            return 0x1F;
+                        }
+                        return 0;
+                    case 0x23:
+                        return 0x0D0D;
+                    case 0x24:
+                        return 0x0090;
+                    case 0x40:
+                        return MCH_RICM & 0x1F;
+                    }
+                }
+                return 0;
+            }
+        }
+
+        case 0x1000F450:
+        case 0x1000F460:
+            return static_cast<T>(0x0);
+
         default:
             std::string type_str = (sizeof(T) == 1 ? "8-bit read"  :
                                     sizeof(T) == 2 ? "16-bit read" :
@@ -117,6 +162,36 @@ void io_write(std::uint32_t address, T value) {
             }
             break;
         }
+        case 0x1000F400:
+        case 0x1000F410:
+        case 0x1000F420:
+            break;
+
+        case 0x1000F430:
+        {
+            if constexpr (sizeof(T) == 4) {
+                uint8_t SA = (value >> 16) & 0xFFF;
+                uint8_t SBC = (value >> 6) & 0xF;
+
+                if (SA == 0x21 && SBC == 0x1 && ((MCH_DRD >> 7) & 1) == 0) rdram_sdevid = 0;
+
+                MCH_RICM = value & ~0x80000000;
+            }
+            break;
+        }
+
+        case 0x1000F440:
+            if constexpr (sizeof(T) == 4) {
+                MCH_DRD = value;
+            }
+            break;
+
+        case 0x1000F450:
+        case 0x1000F460:
+        case 0x1000F480:
+        case 0x1000F490:
+            break;
+
         case 0x1000F500:
         case 0x1F801010:
             // NOP, unknown register
@@ -153,6 +228,26 @@ std::uint8_t Bus::fmem_read8(std::uint32_t address)
     return result;
 }
 
+std::uint16_t Bus::fmem_read16(std::uint32_t address)
+{
+    address = map_to_phys(address, tlb);
+    const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
+    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
+    const auto pointer = address_space_r[page]; // Get the pointer to this page
+    uint16_t result;
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        result = *(uint16_t *)(pointer + offset);
+    }
+    else
+    {
+        result = io_read<uint16_t>(address);
+    }
+
+    return result;
+}
+
 std::uint32_t Bus::fmem_read32(std::uint32_t address)
 {
     address = map_to_phys(address, tlb);
@@ -173,6 +268,26 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
     else
     {
         result = io_read<uint32_t>(address);
+    }
+
+    return result;
+}
+
+std::uint64_t Bus::fmem_read64(std::uint32_t address)
+{
+    address = map_to_phys(address, tlb);
+    const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
+    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
+    const auto pointer = address_space_r[page]; // Get the pointer to this page
+    uint64_t result;
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        result = *(uint64_t *)(pointer + offset);
+    }
+    else
+    {
+        result = io_read<uint64_t>(address);
     }
 
     return result;
@@ -210,6 +325,23 @@ void Bus::fmem_write8(std::uint32_t address, std::uint8_t value)
     else
     {
         io_write<uint8_t>(address, value);
+    }
+}
+
+void Bus::fmem_write16(std::uint32_t address, std::uint16_t value)
+{
+    address = map_to_phys(address, tlb);
+    const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
+    const auto offset = address & 0xFFF;        // The offset inside the 4KB page
+    const auto pointer = address_space_w[page]; // Get the pointer to this page
+
+    if (pointer != 0) // Check if the pointer is not nullptr. If it is not, then this is a fast page
+    {
+        *(uint16_t *)(pointer + offset) = value;
+    }
+    else
+    {
+        io_write<uint16_t>(address, value);
     }
 }
 
@@ -263,4 +395,11 @@ void Bus::fmem_write128(uint32_t address, uint128_t value) {
     } else {
         io_write<uint128_t>(address, value);
     }
+}
+
+void Bus::fmem_write32_dbg(std::uint32_t address, std::uint32_t value, std::uint32_t pc)
+{
+    Logger::info("SW DBG: Address -> 0x" + format("{:08X}", address) + " , value: 0x" 
+    + format("{:08X}", value) + " , PC: 0x" + format("{:08X}", pc));
+    fmem_write32(address, value);
 }

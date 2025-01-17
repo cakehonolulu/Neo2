@@ -16,6 +16,7 @@ class EE : public CPU
     ~EE();
 
     std::function<void()> step_;
+    std::function<void()> run_;
     void run() override;
     void step() override;
     void reset();
@@ -25,6 +26,7 @@ class EE : public CPU
     }
 
     std::uint32_t fetch_opcode() override;
+    std::uint32_t fetch_opcode(std::uint32_t pc_);
     void parse_opcode(std::uint32_t opcode) override;
     void unknown_opcode(std::uint32_t opcode);
     void set_backend(EmulationMode mode);
@@ -39,6 +41,8 @@ class EE : public CPU
 
     uint128_t lo;
     uint128_t hi;
+
+    std::uint64_t cycles = 0;
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
