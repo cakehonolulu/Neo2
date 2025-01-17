@@ -37,10 +37,10 @@ public:
     TLB(size_t num_entries) : entries(num_entries) {}
 
     void write_entry(uint32_t index, const TLBEntry& entry) {
-        Logger::info("Writing TLB entry at index 0x" + format("{:08X}", index) +
+        /*Logger::info("Writing TLB entry at index 0x" + format("{:08X}", index) +
                     ", EntryHi: 0x" + format("{:08X}", entry.entry_hi) +
                     ", EntryLo0: 0x" + format("{:08X}", entry.entry_lo0) +
-                    ", EntryLo1: 0x" + format("{:08X}", entry.entry_lo1));
+                    ", EntryLo1: 0x" + format("{:08X}", entry.entry_lo1));*/
         if (index < entries.size()) {
             entries[index] = entry;
         }

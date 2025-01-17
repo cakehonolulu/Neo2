@@ -140,7 +140,8 @@ std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode,
 }
 
 void IOPJIT::base_error_handler(uint32_t opcode) {
-    Logger::error("Unknown IOP LLVM IR opcode: " + format("0x{:08X}", opcode));
+    Logger::error("Unknown IOP LLVM IR opcode: " + format("0x{:08X}", opcode) +
+                    " at PC: 0x" + format("{:08X}", core->pc));
     Neo2::exit(1, Neo2::Subsystem::EE);
 }
 
@@ -153,11 +154,142 @@ void IOPJIT::step() {
 }
 
 void IOPJIT::run() {
+    single_instruction_mode = false;
     while (!Neo2::is_aborted()) {
-        std::uint32_t opcode = core->fetch_opcode();
-        execute_opcode(opcode);
+        execute_opcode_();
         core->registers[0] = 0;
     }
+}
+
+void IOPJIT::execute_opcode_() {
+    // Try to find existing block
+    CompiledBlock* block = find_block(core->pc);
+    
+    if (!block) {
+        // Compile new block if not found
+        block = compile_block_(core->pc, single_instruction_mode);
+        if (!block) {
+            return;
+        }
+
+        // Add to cache
+        if (block_cache.size() >= CACHE_SIZE) {
+            evict_oldest_block();
+        }
+        block_cache[core->pc] = *block;
+    }
+    
+    // Execute block
+    block->last_used = ++execution_count;
+    auto exec_fn = (int (*)())block->code_ptr;
+    core->cycles += block->cycles;
+    int result = exec_fn();
+}
+
+CompiledBlock* IOPJIT::compile_block_(uint32_t start_pc, bool single_instruction) {
+    uint32_t current_pc = start_pc;
+    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
+    bool is_branch = false;
+    uint32_t block_cycles = 0;
+    
+    // Create new module for this block
+    auto new_module = std::make_unique<llvm::Module>(
+        "block_" + std::to_string(start_pc), *context);
+    
+    if (!new_module) {
+        Logger::error("Failed to create LLVM module");
+        return nullptr;
+    }
+        
+    // Create function and basic block
+    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
+    llvm::Function *func = llvm::Function::Create(funcType, 
+                                                llvm::Function::ExternalLinkage,
+                                                "exec_" + std::to_string(start_pc),
+                                                new_module.get());
+
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
+    builder->SetInsertPoint(entry);
+
+    uint64_t old_cycles = core->cycles;
+    uint64_t block_cycles_ = 0;
+
+    while (!Neo2::is_aborted()) {
+        uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
+
+        // Generate IR for the opcode
+        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+        is_branch = branch;
+
+        if (error) {
+            Logger::error("Error generating IR for opcode");
+            Neo2::exit(1, Neo2::Subsystem::EE);
+            return nullptr;
+        }
+
+        // Check if opcode is a branch or jump
+        if (single_instruction || is_branch) {
+
+            if (!single_instruction)
+            {
+                current_pc += 4;
+                opcode = core->fetch_opcode(current_pc);
+
+                auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+                if (error) {
+                    Logger::error("Error generating IR for branch-delay opcode");
+                    Neo2::exit(1, Neo2::Subsystem::EE);
+                    return nullptr;
+                }
+            }
+
+            end_pc = current_pc_;
+            break;
+        }
+
+        current_pc = current_pc_;  // Update the PC to the next instruction address
+
+        if (!single_instruction) current_pc += 4;
+    }
+
+    block_cycles_ = core->cycles - old_cycles;
+
+    builder->CreateRetVoid();  // Return from the function
+
+    // Prepare the module's LLVM IR
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    new_module->print(os, nullptr);
+    os.flush();
+
+    // Add the module to the execution engine
+    if (!executionEngine) {
+        Logger::error("Execution engine is not initialized");
+        return nullptr;
+    }
+
+    executionEngine->addModule(std::move(new_module));
+    executionEngine->finalizeObject();
+    
+    auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
+    if (!exec_fn) {
+        Logger::error("Failed to JIT compile function");
+        return nullptr;
+    }
+
+    // Create and return the compiled block
+    auto block = new CompiledBlock();
+    block->start_pc = start_pc;
+    block->end_pc = end_pc;
+    block->code_ptr = (void*)exec_fn;
+    block->last_used = execution_count;
+    block->contains_branch = is_branch;
+    block->llvm_ir = str;
+    block->cycles = block_cycles_;
+
+    return block;
 }
 
 void IOPJIT::execute_opcode(std::uint32_t opcode) {
@@ -485,66 +617,51 @@ void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
 }
 
 void IOPJIT::iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
-    uint8_t rs = (opcode >> 21) & 0x1F;
-    uint8_t rt = (opcode >> 16) & 0x1F;
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);  // Get the 16-bit signed offset
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract rs register
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract rt register
+    int16_t immediate = static_cast<int16_t>(opcode & 0xFFFF);  // Extract immediate
 
-    // Get the base address for the general-purpose registers (GPR)
+    // Load the base address of general-purpose registers (GPR)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
         llvm::PointerType::getUnqual(builder->getInt32Ty())
     );
 
-    // Load the values of rs and rt from the registers
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
-    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+    // Load the values from registers rs and rt
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs))
+    );
 
-    // Compare rs and rt for equality
+    llvm::Value* rt_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt))
+    );
+
+    // Create the condition: rs == rt (equality comparison)
     llvm::Value* condition = builder->CreateICmpEQ(rs_value, rt_value);
 
-    // Create basic blocks for the branch (true) and continue (false)
-    llvm::BasicBlock* branch_block = llvm::BasicBlock::Create(*context, "branch", builder->GetInsertBlock()->getParent());
-    llvm::BasicBlock* continue_block = llvm::BasicBlock::Create(*context, "continue", builder->GetInsertBlock()->getParent());
+    // Calculate the branch target address (address of the instruction in the branch delay slot + (immediate * 4))
+    llvm::Value* branch_target = builder->CreateAdd(
+        builder->getInt32(current_pc + 4),  // Address of the instruction in the branch delay slot
+        builder->CreateShl(builder->getInt32(immediate), 2)  // immediate * 4
+    );
 
-    // Conditional branch based on the comparison
-    builder->CreateCondBr(condition, branch_block, continue_block);
-
-    // Branch block: if the condition is true, calculate the target PC and branch
-    builder->SetInsertPoint(branch_block);
-
-    // Sign-extend the offset to 32 bits
-    llvm::Value* signed_offset = builder->CreateSExt(builder->getInt16(offset), builder->getInt32Ty()); // Sign-extend to 32-bit
-
-    // Multiply by 4 (since MIPS is word-aligned)
-    signed_offset = builder->CreateMul(signed_offset, builder->getInt32(4), "offset_mul_4");
-
-    // Add 4 to current_pc to get to the next instruction
-    llvm::Value* current_pc_value = builder->getInt32(static_cast<int32_t>(current_pc)); // Convert current_pc to signed 32-bit integer
-    llvm::Value* next_pc_value = builder->CreateAdd(current_pc_value, builder->getInt32(4), "next_pc");  // current_pc + 4 (next instruction)
-
-    // Add the signed offset to get the target PC
-    llvm::Value* target_pc = builder->CreateAdd(next_pc_value, signed_offset, "calc_target_pc");
-
-    // Store the target PC and mark the branch destination
-    builder->CreateStore(target_pc, builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
-    ));
-
-    // Set the branching flag to true
-    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
-        llvm::PointerType::getUnqual(builder->getInt1Ty())
-    ));
-
-    // Branch to the continue block after handling the branch
-    builder->CreateBr(continue_block);
-
-    // Continue block: update the PC if no branch was taken
-    builder->SetInsertPoint(continue_block);
+    // Execute the delay slot instruction, regardless of whether the branch is taken or not
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 
-    // Set the flag indicating a branch was taken
+    // If the branch is taken, update the branch destination and set branching to true
+    builder->CreateStore(
+        builder->CreateSelect(condition, branch_target, builder->getInt32(current_pc + 4)),
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty()))
+    );
+
+    // Set the branching flag
+    builder->CreateStore(
+        builder->CreateSelect(condition, builder->getInt1(true), builder->getInt1(false)),
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty()))
+    );
+
     is_branch = true;
 }
 
@@ -594,11 +711,15 @@ void IOPJIT::iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 
     llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
 
-    builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
-    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
-
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 
+    // Set branch destination to the value in the RS register (jump address)
+    builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Mark the processor as branching
+    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
+    // Update the program counter and set is_branch to true
     is_branch = true;
 }
 
@@ -675,5 +796,5 @@ void IOPJIT::iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     builder->CreateCall(iop_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
                                     addr_value, value_to_store});
     // Emit the update to PC after this operation
-    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

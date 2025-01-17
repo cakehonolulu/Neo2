@@ -24,6 +24,9 @@
 #include "ImGuiFileDialog.h"
 #include <argparse/argparse.hpp>
 
+bool logging_enabled = true; // Flag to track logging state
+Disassembler disassembler;
+
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
 {
@@ -34,6 +37,44 @@ ImGui_Neo2::ImGui_Neo2()
 void ImGui_Neo2::init()
 {
     Logger::debug("Initializing ImGui frontend...\n");
+}
+
+const std::string regs[32] = {
+    "zr", "at", "v0", "v1", "a0", "a1", "a2", "a3",
+    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
+    "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"
+};
+
+void log_instruction(EE* cpu) {
+    if (!logging_enabled) {
+        return;
+    }
+
+    std::ofstream logfile("instruction_trace.txt", std::ios::app);
+
+    uint32_t pc = cpu->pc;
+    uint32_t opcode = cpu->bus->read32(pc);
+    DisassemblyData data = disassembler.disassemble(cpu, pc, opcode, false);
+
+    //logfile << "PC: " << format("{:08X}", cpu->pc) << " " << data.mnemonic << "\n";
+    logfile << "PC: " << format("{:08X}", cpu->pc) << "\n";
+    logfile << "GPR:\n";
+    for (size_t i = 0; i < 32; i++) {
+        //if (auto* ee = dynamic_cast<const EE*>(cpu)) {
+            logfile << regs[i] << ": " << format("{:016X}", cpu->registers[i].u64[1])
+            << format("{:016X} ", cpu->registers[i].u64[0]);
+            if ((i - 1) % 2 == 0) logfile << "\n";
+        /*} else if (auto* iop = dynamic_cast<const IOP*>(cpu)) {
+            logfile << std::hex << iop->registers[i] << " ";
+        }*/
+    }
+    logfile << "\n";
+    //if (auto* ee = dynamic_cast<const EE*>(cpu)) {
+        logfile << "HI: " << format("{:08X}", cpu->hi.u32[0]) << " LO: " << format("{:08X}", cpu->lo.u32[0]) << "\n";
+    //}
+    logfile << "------------------------------------------------------------\n";
+    logfile.close();
 }
 
 void ImGui_Neo2::run(int argc, char **argv)
@@ -143,6 +184,10 @@ void ImGui_Neo2::run(int argc, char **argv)
 	std::string bios_file_path;
     std::string status_text = "Idle";
     ImVec4 status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for Idle
+
+    this->ee.set_backend(use_jit_ee ? EmulationMode::JIT : EmulationMode::Interpreter);
+    this->iop.set_backend(use_jit_iop ? EmulationMode::JIT : EmulationMode::Interpreter);
+
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
     // You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
@@ -353,19 +398,9 @@ void ImGui_Neo2::run(int argc, char **argv)
                     status_color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green for running
                     stop_requested = false; // Reset stop flag
 
-                    // Start the emulation loop in a separate thread
-                    std::thread emulation_thread([this, &is_running, &stop_requested, &status_mutex, &status_text, &status_color, &debug_interface]() {
-                        while (!Neo2::is_aborted() && !stop_requested) {
-                            if (debug_interface.has_breakpoint(this->ee.pc, this->ee) || debug_interface.has_breakpoint(this->iop.pc, this->iop)) {
-                                std::lock_guard<std::mutex> lock(status_mutex);
-                                status_text = "Breakpoint Hit";
-                                status_color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // Yellow for breakpoint hit
-                                is_running = false;
-                                break;
-                            }
-                            this->ee.step();
-                            this->iop.step();
-                        }
+                    // Start the emulation loop in separate threads
+                    std::thread ee_thread([this, &is_running, &stop_requested, &status_mutex, &status_text, &status_color, &debug_interface]() {
+                        this->ee.run();
 
                         std::lock_guard<std::mutex> lock(status_mutex);
                         status_text = "Idle";
@@ -373,8 +408,15 @@ void ImGui_Neo2::run(int argc, char **argv)
                         is_running = false;
                     });
 
-                    // Detach the thread to allow it to run independently
-                    emulation_thread.detach();
+                    std::thread iop_thread([this, &stop_requested, &status_mutex, &status_text, &status_color, &debug_interface]() {
+                        while (!Neo2::is_aborted()) this->iop.step();
+                        //this->iop.run();
+                    });
+
+                    // Detach the threads to allow them to run independently
+                    ee_thread.detach();
+                    iop_thread.detach();
+
                     is_running = true;
                 }
             }

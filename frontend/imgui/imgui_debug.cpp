@@ -325,6 +325,8 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     // Variables to hold the selected register and its new value
     static int selected_register = -1;
     static char new_value[128] = "";
+    static int selected_cop0_register = -1;
+    static char new_cop0_value[128] = "";
 
     // Lambda to render register with optional input field
     auto render_register_ = [&](const char* label, __int128 value, int reg_index = -1) {
@@ -364,6 +366,28 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
                     iop->registers[reg_index] = value;
                 }
                 selected_register = -1; // Deselect the register after editing
+            }
+        }
+    };
+
+    // Lambda to render register with optional input field
+    auto render_register_cop0 = [&](const char* label, uint32_t value, int reg_index = -1) {
+        ImGui::Text("%-8s: 0x%08X", label, value);
+        if (ImGui::IsItemClicked()) {
+            selected_cop0_register = reg_index;
+            snprintf(new_cop0_value, sizeof(new_cop0_value), "%08X", value);
+        }
+
+        if (selected_cop0_register == reg_index) {
+            ImGui::InputText("##edit", new_cop0_value, sizeof(new_cop0_value), ImGuiInputTextFlags_CharsHexadecimal);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                value = strtoull(new_cop0_value, nullptr, 16);
+                if (auto* ee = dynamic_cast<EE*>(cpu)) {
+                    ee->cop0_registers[reg_index] = value;
+                } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
+                    iop->cop0_registers[reg_index] = value;
+                }
+                selected_cop0_register = -1; // Deselect the register after editing
             }
         }
     };
@@ -422,12 +446,16 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
         if (auto* ee = dynamic_cast<EE*>(cpu)) {
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
-                ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), ee->cop0_registers[i]);
+                uint32_t current_value = ee->cop0_registers[i];
+                render_register_cop0(cop0_register_names[i].c_str(), current_value, i);
+                //ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), ee->cop0_registers[i]);
             }
         } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
-                ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), iop->cop0_registers[i]);
+                uint32_t current_value = iop->cop0_registers[i];
+                render_register_cop0(cop0_register_names[i].c_str(), current_value, i);
+                //ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), iop->cop0_registers[i]);
             }
         }
         ImGui::EndTable();

@@ -19,6 +19,7 @@ public:
     uint64_t last_used;
     bool contains_branch;
     std::string llvm_ir;
+    uint32_t cycles;
 };
 
 class CPU {

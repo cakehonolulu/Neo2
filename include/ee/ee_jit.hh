@@ -9,6 +9,21 @@
 #include <unordered_map>
 #include <vector>
 
+#define Default     9
+#define Branch      11
+#define CopDefault  7
+
+#define Mult        2*8
+#define Div         14*8
+#define MMI_Mult    3*8
+#define MMI_Div     22*8
+#define MMI_Default 14
+
+#define FPU_Mult    4*8
+
+#define Store       14
+#define Load        14
+
 #define EMIT_EE_UPDATE_PC(core, builder, current_pc) \
     do { \
         llvm::Value* pc_ptr = builder->CreateIntToPtr( \
@@ -44,7 +59,8 @@ public:
     EEJIT(EE* core);
     ~EEJIT();
     std::unordered_map<uint32_t, CompiledBlock> block_cache;
-    void execute_opcode(std::uint32_t opcode);
+    void execute_opcode();
+    void execute_opcode_();
     void step();
     void run();
 
@@ -55,6 +71,7 @@ private:
     bool single_instruction_mode = false;
 
     CompiledBlock* compile_block(uint32_t pc, bool single_instruction);
+    CompiledBlock* compile_block_(uint32_t pc, bool single_instruction);
     void link_blocks();
     void evict_oldest_block();
     CompiledBlock* find_block(uint32_t pc);
@@ -69,6 +86,8 @@ private:
 
     llvm::FunctionType* ee_write8_type;
     llvm::Function* ee_write8;
+    llvm::FunctionType* ee_write16_type;
+    llvm::Function* ee_write16;
     llvm::FunctionType* ee_write32_type;
     llvm::Function* ee_write32;
     llvm::FunctionType* ee_write64_type;
@@ -78,22 +97,32 @@ private:
 
     llvm::FunctionType* ee_read8_type;
     llvm::Function* ee_read8;
+    llvm::FunctionType* ee_read16_type;
+    llvm::Function* ee_read16;
     llvm::FunctionType* ee_read32_type;
     llvm::Function* ee_read32;
+    llvm::FunctionType* ee_read64_type;
+    llvm::Function* ee_read64;
     llvm::FunctionType* ee_read128_type;
     llvm::Function* ee_read128;
+
+    llvm::FunctionType* ee_tlb_write_type;
+    llvm::Function* ee_tlb_write;
+
+    llvm::FunctionType* ee_write32_dbg_type;
+    llvm::Function* ee_write32_dbg;
 
     typedef void (EEJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, EE*);
 
     struct OpcodeHandlerEntry {
-        std::unordered_map<std::uint8_t, OpcodeHandler> funct3_map;
-        std::unordered_map<std::uint8_t, OpcodeHandler> rs_map;
-        OpcodeHandler single_handler = nullptr;
+        std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> funct3_map;
+        std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> rs_map;
+        std::pair<OpcodeHandler, uint32_t> single_handler = {nullptr, 0};
     };
 
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
 
-    void base_error_handler(uint32_t opcode);
+    void base_error_handler(uint32_t opcode, uint32_t pc);
 
     void initialize_opcode_table();
 
@@ -140,4 +169,17 @@ private:
     void ee_jit_blez(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_subu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_bgtz(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_slt(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_and(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lhu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_bltz(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sh(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_divu1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mflo1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_dsrav(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_dsll32(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_dsra32(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_xori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_mult1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_movz(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };

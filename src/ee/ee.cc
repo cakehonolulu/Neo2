@@ -51,10 +51,7 @@ EE::~EE()
 
 void EE::run()
 {
-    while (!Neo2::is_aborted())
-    {
-        step();
-    }
+    run_();
 }
 
 void EE::step() {
@@ -81,6 +78,11 @@ std::uint32_t EE::fetch_opcode()
     return bus->read32(pc);
 }
 
+std::uint32_t EE::fetch_opcode(std::uint32_t pc_)
+{
+    return bus->read32(pc_);
+}
+
 void EE::parse_opcode(std::uint32_t opcode)
 {
     std::uint8_t function = (opcode >> 26) & 0x3F;
@@ -105,6 +107,7 @@ void EE::set_backend(EmulationMode mode) {
     case EmulationMode::JIT:
         Logger::info("Switching to JIT mode...");
         step_ = std::bind(&EEJIT::step, jit.get());
+        run_ = std::bind(&EEJIT::run, jit.get());
         break;
     default:
         Logger::error("Invalid emulation mode");
