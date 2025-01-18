@@ -13,15 +13,8 @@ class ImGuiDebug {
     void render_cpu_registers(const char* window_name, CPU* cpu);
     void render_jit_blocks(const char* window_name, CPU& cpu);
     void render_bus_info(const char* window_name, const Bus& bus);
-    void add_breakpoint(uint32_t address, CPU& cpu);
-    void remove_breakpoint(uint32_t address, CPU& cpu);
-    bool has_breakpoint(uint32_t address, CPU& cpu);
-    void render_breakpoints(const char* window_name, CPU* cpu);
-    void render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset);
+    void render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset, Breakpoint *breakpoints);
     void render_memory_view(Bus *bus);
-
-    std::unordered_set<uint32_t> ee_breakpoints;
-    std::unordered_set<uint32_t> iop_breakpoints;
 
     bool use_pseudos_ee = true;
     bool use_pseudos_iop = true;

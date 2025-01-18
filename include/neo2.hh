@@ -29,7 +29,22 @@ class Neo2 {
         guilty_subsystem = Subsystem::None;
     }
 
-    static Subsystem get_guilty_subsystem() { return guilty_subsystem; }
+  static Subsystem get_guilty_subsystem() { return guilty_subsystem; }
+
+  static void pause_emulation() {
+        std::lock_guard<std::mutex> lock(emulation_mutex);
+        emulation_paused = true;
+    }
+
+    static void resume_emulation() {
+        std::lock_guard<std::mutex> lock(emulation_mutex);
+        emulation_paused = false;
+    }
+
+    static bool is_emulation_paused() {
+        std::lock_guard<std::mutex> lock(emulation_mutex);
+        return emulation_paused;
+    }
 
     EE ee;
     IOP iop;
@@ -39,6 +54,8 @@ class Neo2 {
   private:
     static inline bool aborted = false;
     static inline Subsystem guilty_subsystem = Subsystem::None;
+    static inline std::mutex emulation_mutex;
+    static inline bool emulation_paused = false;
 };
 
 #define RESET "\033[0m"

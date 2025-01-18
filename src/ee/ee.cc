@@ -49,9 +49,9 @@ EE::~EE()
 {
 }
 
-void EE::run()
+void EE::run(Breakpoint *breakpoints)
 {
-    run_();
+    run_(breakpoints);
 }
 
 void EE::step() {
@@ -107,7 +107,7 @@ void EE::set_backend(EmulationMode mode) {
     case EmulationMode::JIT:
         Logger::info("Switching to JIT mode...");
         step_ = std::bind(&EEJIT::step, jit.get());
-        run_ = std::bind(&EEJIT::run, jit.get());
+        run_ = std::bind(&EEJIT::run, jit.get(), std::placeholders::_1);
         break;
     default:
         Logger::error("Invalid emulation mode");

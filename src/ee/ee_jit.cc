@@ -1,3 +1,4 @@
+#include "cpu/breakpoint.hh"
 #include <ee/ee_jit.hh>
 #include <log/log.hh>
 #include <neo2.hh>
@@ -11,6 +12,7 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <sstream>
+#include <thread>
 #include <unistd.h>
 
 #if __has_include(<format>)
@@ -258,6 +260,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x0F] = {&EEJIT::ee_jit_sync, Default}; // SYNC opcode
     opcode_table[0x00].funct3_map[0x10] = {&EEJIT::ee_jit_mfhi, Default}; // MFHI opcode
     opcode_table[0x00].funct3_map[0x12] = {&EEJIT::ee_jit_mflo, Default}; // MFLO opcode
+    opcode_table[0x00].funct3_map[0x14] = {&EEJIT::ee_jit_dsllv, Default}; // DSLLV opcode
     opcode_table[0x00].funct3_map[0x17] = {&EEJIT::ee_jit_dsrav, Default}; // DSRAV opcode
     opcode_table[0x00].funct3_map[0x18] = {&EEJIT::ee_jit_mult, Mult};  // MULT opcode
     opcode_table[0x00].funct3_map[0x1A] = {&EEJIT::ee_jit_div, Div}; // DIV opcode
@@ -269,6 +272,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x2A] = {&EEJIT::ee_jit_slt, Default}; // SLT opcode
     opcode_table[0x00].funct3_map[0x2B] = {&EEJIT::ee_jit_sltu, Default}; // SLTU opcode
     opcode_table[0x00].funct3_map[0x2D] = {&EEJIT::ee_jit_dmove, Default}; // DMOVE opcode
+    //opcode_table[0x00].funct3_map[0x3A] = {&EEJIT::ee_jit_dsrl, Default}; // DSRL opcode
     opcode_table[0x00].funct3_map[0x3C] = {&EEJIT::ee_jit_dsll32, Default}; // DSLL32 opcode
     opcode_table[0x00].funct3_map[0x3F] = {&EEJIT::ee_jit_dsra32, Default}; // DSRA32 opcode
 
@@ -295,12 +299,18 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x0F].single_handler = {&EEJIT::ee_jit_lui, Default}; // LUI opcode
     opcode_table[0x14].single_handler = {&EEJIT::ee_jit_beql, Branch}; // BEQL opcode
     opcode_table[0x15].single_handler = {&EEJIT::ee_jit_bnel, Branch}; // BNEL opcode
+    opcode_table[0x19].single_handler = {&EEJIT::ee_jit_daddiu, Default};  // DADDIU opcode
 
     opcode_table[0x1C].funct3_map[0x12] = {&EEJIT::ee_jit_mflo1, Default}; // MFLO1 opcode
     opcode_table[0x1C].funct3_map[0x18] = {&EEJIT::ee_jit_mult1, MMI_Mult}; // MULT1 opcode
     opcode_table[0x1C].funct3_map[0x1B] = {&EEJIT::ee_jit_divu1, MMI_Div}; // DIVU1 opcode
+    opcode_table[0x1C].funct3_map[0x1B] = {&EEJIT::ee_jit_divu1, MMI_Div}; // DIVU1 opcode
+    opcode_table[0x1C].subfunc_map[0x29][0x12] = {&EEJIT::ee_jit_or, Default}; // POR opcode
 
+    opcode_table[0x1E].single_handler = {&EEJIT::ee_jit_lq, Load};  // LQ opcode
+    opcode_table[0x1F].single_handler = {&EEJIT::ee_jit_sq, Store};  // SQ opcode
     opcode_table[0x20].single_handler = {&EEJIT::ee_jit_lb, Load};  // LB opcode
+    opcode_table[0x21].single_handler = {&EEJIT::ee_jit_lh, Load};  // LH opcode
     opcode_table[0x23].single_handler = {&EEJIT::ee_jit_lw, Load}; // LW opcode
     opcode_table[0x24].single_handler = {&EEJIT::ee_jit_lbu, Load}; // LBU opcode
     opcode_table[0x25].single_handler = {&EEJIT::ee_jit_lhu, Load}; // LHU opcode
@@ -383,7 +393,7 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
             auto rs_it = it->second.rs_map.find(funct_or_rs);
             if (rs_it != it->second.rs_map.end()) {
                 handler = rs_it->second.first;
-                core->cycles = rs_it->second.second;
+                core->cycles += rs_it->second.second;
             }
         } else if (opcode_index == 0x1C) {  // Special case for MMI instructions
             // Get low 6 bits of opcode
@@ -391,7 +401,14 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
             auto funct_it = it->second.funct3_map.find(funct);
             if (funct_it != it->second.funct3_map.end()) {
                 handler = funct_it->second.first;
-                core->cycles = funct_it->second.second;
+                core->cycles += funct_it->second.second;
+            } else {
+                uint32_t subfunc = (opcode >> 6) & 0x1F; // Adjust based on your sub-opcode extraction logic
+                auto subfunc_it = it->second.subfunc_map[funct].find(subfunc);
+                if (subfunc_it != it->second.subfunc_map[funct].end()) {
+                    handler = subfunc_it->second.first;
+                    core->cycles += subfunc_it->second.second;
+                }
             }
         } else {
             // Handle regular opcodes
@@ -399,10 +416,10 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
             if (funct_it != it->second.funct3_map.end())
             {
                 handler = funct_it->second.first;
-                core->cycles = funct_it->second.second;
+                core->cycles += funct_it->second.second;
             } else {
                 handler = it->second.single_handler.first;
-                core->cycles = it->second.single_handler.second;
+                core->cycles += it->second.single_handler.second;
             }
         }
 
@@ -425,27 +442,34 @@ void EEJIT::base_error_handler(uint32_t opcode, uint32_t pc) {
 }
 
 void EEJIT::step() {
+    if (exec_type != RunType::Step)
+    {
+        block_cache.clear();
+    }
+    exec_type = RunType::Step;
     single_instruction_mode = true;
-    execute_opcode();
+    execute_opcode_step();
     core->registers[0].u128 = 0;
     single_instruction_mode = false;
 }
 
-void EEJIT::run() {
-    single_instruction_mode = false;
-    while (!Neo2::is_aborted()) {
-        execute_opcode_();
-        core->registers[0].u128 = 0;
+void EEJIT::run(Breakpoint *breakpoints) {
+    if (exec_type != RunType::Run)
+    {
+        block_cache.clear();
     }
+    exec_type = RunType::Run;
+    execute_opcode_run(breakpoints);
+    core->registers[0].u128 = 0;
 }
 
-void EEJIT::execute_opcode_() {
+void EEJIT::execute_opcode_run(Breakpoint *breakpoints) {
     // Try to find existing block
     CompiledBlock* block = find_block(core->pc);
     
     if (!block) {
         // Compile new block if not found
-        block = compile_block_(core->pc, single_instruction_mode);
+        block = compile_block_run(core->pc, single_instruction_mode, breakpoints);
         if (!block) {
             return;
         }
@@ -461,14 +485,13 @@ void EEJIT::execute_opcode_() {
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
     core->cycles += block->cycles;
-    int result = exec_fn();
+    exec_fn();
 }
 
-CompiledBlock* EEJIT::compile_block_(uint32_t start_pc, bool single_instruction) {
+CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instruction, Breakpoint *breakpoints) {
     uint32_t current_pc = start_pc;
     uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
     bool is_branch = false;
-    uint32_t block_cycles = 0;
     
     // Create new module for this block
     auto new_module = std::make_unique<llvm::Module>(
@@ -478,7 +501,7 @@ CompiledBlock* EEJIT::compile_block_(uint32_t start_pc, bool single_instruction)
         Logger::error("Failed to create LLVM module");
         return nullptr;
     }
-        
+
     // Create function and basic block
     llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
     llvm::Function *func = llvm::Function::Create(funcType, 
@@ -493,6 +516,34 @@ CompiledBlock* EEJIT::compile_block_(uint32_t start_pc, bool single_instruction)
     uint64_t block_cycles_ = 0;
 
     while (!Neo2::is_aborted()) {
+        if (breakpoints->has_breakpoint(current_pc, CoreType::EE))
+        {
+            // Notify the main thread
+            Neo2::pause_emulation();
+
+            // Set breakpoint information in the debug interface
+            breakpoints->notify_breakpoint(current_pc);
+
+            goto likely_detection;
+        }
+
+        if (core->branching) {
+
+            core->branching = false; // Reset branching state
+            uint32_t delay_slot_pc = current_pc;
+
+            // Process the branch delay slot instruction
+            uint32_t opcode = core->fetch_opcode(delay_slot_pc);
+            auto [branch, _, error] = generate_ir_for_opcode(opcode, delay_slot_pc);
+            if (error) {
+                Logger::error("Error processing likely delay slot opcode");
+                Neo2::exit(1, Neo2::Subsystem::EE);
+                return nullptr;
+            }
+
+            current_pc = core->branch_dest; // Set the PC to the branch destination
+        }
+
         uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
 
         // Generate IR for the opcode
@@ -507,36 +558,35 @@ CompiledBlock* EEJIT::compile_block_(uint32_t start_pc, bool single_instruction)
         }
 
         // Check if opcode is a branch or jump
-        if (single_instruction || is_branch) {
+        if (is_branch) {
+            uint32_t func = (opcode >> 26) & 0x3F;
 
-            if (!single_instruction)
+            if (func == 0x14 || func == 0x15)
             {
-                uint32_t func = (opcode >> 26) & 0x3F;
-
-                if (func == 0x14 || func == 0x15) goto likely_detection;
-
-                current_pc += 4;
-                opcode = core->fetch_opcode(current_pc);
-
-                auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
-
-                if (error) {
-                    Logger::error("Error generating IR for branch-delay opcode");
-                    Neo2::exit(1, Neo2::Subsystem::EE);
-                    return nullptr;
-                }
+                goto likely_detection;
             }
 
-likely_detection:
+            current_pc += 4;
+            opcode = core->fetch_opcode(current_pc);
+
+            auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+            if (error) {
+                Logger::error("Error generating IR for branch-delay opcode");
+                Neo2::exit(1, Neo2::Subsystem::EE);
+                return nullptr;
+            }
+            
             end_pc = current_pc_;
             break;
         }
 
         current_pc = current_pc_;  // Update the PC to the next instruction address
 
-        if (!single_instruction) current_pc += 4;
+        current_pc += 4;
     }
 
+likely_detection:
     block_cycles_ = core->cycles - old_cycles;
 
     builder->CreateRetVoid();  // Return from the function
@@ -575,13 +625,13 @@ likely_detection:
     return block;
 }
 
-void EEJIT::execute_opcode() {
+void EEJIT::execute_opcode_step() {
     // Try to find existing block
     CompiledBlock* block = find_block(core->pc);
     
     if (!block) {
         // Compile new block if not found
-        block = compile_block(core->pc, single_instruction_mode);
+        block = compile_block_step(core->pc, single_instruction_mode);
         if (!block) {
             return;
         }
@@ -597,10 +647,10 @@ void EEJIT::execute_opcode() {
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
     core->cycles += block->cycles;
-    int result = exec_fn();
+    exec_fn();
 }
 
-CompiledBlock* EEJIT::compile_block(uint32_t start_pc, bool single_instruction) {
+CompiledBlock* EEJIT::compile_block_step(uint32_t start_pc, bool single_instruction) {
     uint32_t current_pc = start_pc;
     uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
     bool is_branch = false;
@@ -1517,8 +1567,8 @@ void EEJIT::ee_jit_beql(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 
     llvm::Value* pc_new = builder->CreateSelect(
         condition,
-        branch_dest,
-        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(8)) // Increment PC by 4 if no branch
+        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(4)),
+        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(8))
     );
 
     builder->CreateStore(pc_new, pc_ptr);
@@ -1528,7 +1578,14 @@ void EEJIT::ee_jit_beql(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
         llvm::PointerType::getUnqual(builder->getInt1Ty())
     );
-    builder->CreateStore(condition, branching_ptr);
+
+    llvm::Value* branching_new = builder->CreateSelect(
+        condition,
+        builder->getInt1(true),
+        builder->getInt1(false)
+    );
+
+    builder->CreateStore(branching_new, branching_ptr);
 
     llvm::Value* branch_dest_ptr = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
@@ -1619,12 +1676,13 @@ void EEJIT::ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4))
     );
     
+    // Load rs and rt values
     llvm::Value* rt_value = builder->CreateLoad(
         builder->getInt32Ty(),
         builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4))
     );
     
-    // Inequality comparison (rs != rt)
+    // Equality comparison (rs == rt)
     llvm::Value* condition = builder->CreateICmpNE(rs_value, rt_value);
 
     // Compute the branch destination: PC + (offset * 4)
@@ -1642,8 +1700,8 @@ void EEJIT::ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 
     llvm::Value* pc_new = builder->CreateSelect(
         condition,
-        branch_dest,
-        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(8)) // Increment PC by 4 if no branch
+        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(4)),
+        builder->CreateAdd(builder->getInt64(current_pc), builder->getInt64(8))
     );
 
     builder->CreateStore(pc_new, pc_ptr);
@@ -1653,7 +1711,14 @@ void EEJIT::ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
         llvm::PointerType::getUnqual(builder->getInt1Ty())
     );
-    builder->CreateStore(condition, branching_ptr);
+
+    llvm::Value* branching_new = builder->CreateSelect(
+        condition,
+        builder->getInt1(true),
+        builder->getInt1(false)
+    );
+
+    builder->CreateStore(branching_new, branching_ptr);
 
     llvm::Value* branch_dest_ptr = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
@@ -2798,5 +2863,282 @@ void EEJIT::ee_jit_movz(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     builder->SetInsertPoint(after_store_block);
 
     // Update the program counter after the instruction is executed
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_dsllv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // Extract the registers from the opcode
+    uint32_t rs = (opcode >> 21) & 0x1F;  // Bits 21-25
+    uint32_t rt = (opcode >> 16) & 0x1F;  // Bits 16-20
+    uint32_t rd = (opcode >> 11) & 0x1F;  // Bits 11-15
+
+    // Load the base address of the registers
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty()) // 64-bit signed integers
+    );
+
+    // Load the value from the rt register
+    llvm::Value* rt_value = builder->CreateLoad(
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2)) // Access rt register
+    );
+
+    // Load the value from the rs register (shift amount)
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 2)) // Access rs register
+    );
+
+    // Extract the low-order 6 bits from GPR[rs]
+    llvm::Value* shift_amount = builder->CreateAnd(
+        rs_value,
+        llvm::ConstantInt::get(builder->getInt64Ty(), 0x3F) // Mask to lower 6 bits
+    );
+
+    // Perform the logical left shift (GPR[rd] = GPR[rt] << shift_amount)
+    llvm::Value* shifted_value = builder->CreateShl(rt_value, shift_amount);
+
+    // Store the result in the rd register
+    builder->CreateStore(
+        shifted_value,
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2)) // rd * 2 for 64-bit offset
+    );
+
+    // Update the program counter after the instruction is executed
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_daddiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // Extract rt, rs, and immediate fields from the opcode
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Bits 16-20
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Bits 21-25
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);  // Sign-extend the 16-bit immediate value
+
+    // Get the base address of the registers
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty()) // Registers are 64-bit
+    );
+
+    // Load the value from GPR[rs]
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 2)) // Access rs register (64-bit offset)
+    );
+
+    // Sign-extend the immediate value to 64 bits
+    llvm::Value* imm_value = builder->getInt64(imm);
+
+    // Perform the addition: GPR[rt] = GPR[rs] + sign_extend(immediate)
+    llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
+
+    // Store the result in GPR[rt]
+    builder->CreateStore(
+        result,
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2)) // Access rt register (64-bit offset)
+    );
+
+    // Update the program counter after executing the instruction
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_sq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+
+    // Get the GPR base pointer
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt128Ty()) // Access 128-bit registers directly
+    );
+
+    // Load the value of the base register (rs)
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt64Ty(), // rs is a 64-bit value (used for addressing)
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rs * 2))
+    );
+
+    // Compute the effective address (addr = base + offset)
+    llvm::Value* offset_value = builder->getInt64(offset); // Offset is extended to 64-bit
+    llvm::Value* addr_value = builder->CreateAdd(rs_value, offset_value);
+
+    // Get the pointer to the 128-bit value of the rt register
+    llvm::Value* rt_value_ptr = builder->CreateGEP(
+        builder->getInt128Ty(), gpr_base, builder->getInt32(rt)
+    );
+
+    // Load the 128-bit value from the rt register
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt128Ty(), rt_value_ptr);
+
+    // Split the 128-bit value into lower and upper 64 bits
+    llvm::Value* upper_value_to_store = builder->CreateTrunc(rt_value, builder->getInt64Ty());
+    llvm::Value* lower_value_to_store = builder->CreateTrunc(
+        builder->CreateLShr(rt_value, builder->getIntN(128, 64)), // Logical shift right by 64 bits
+        builder->getInt64Ty()
+    );
+
+    // Call ee_write64 for the lower 64 bits
+    builder->CreateCall(
+        ee_write64,
+        {
+            llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+            addr_value,
+            lower_value_to_store
+        }
+    );
+
+    // Increment the address by 8 for the upper 64 bits
+    llvm::Value* addr_upper = builder->CreateAdd(
+        addr_value,
+        builder->getInt64(8) // Offset by 8 bytes for the upper 64 bits
+    );
+
+    // Call ee_write64 for the upper 64 bits
+    builder->CreateCall(
+        ee_write64,
+        {
+            llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+            addr_upper,
+            upper_value_to_store
+        }
+    );
+
+    // Update the program counter
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_lq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract the destination register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract the base register (rs)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);  // Extract the offset (16-bit immediate)
+
+    // Get the GPR base pointer (points to the array of 128-bit registers)
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt128Ty()) // Access 128-bit registers directly
+    );
+
+    // Load the value of the base register (rs)
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt64Ty(), // rs is a 64-bit value (used for addressing)
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rs * 2))
+    );
+
+    // Extend the offset to 64-bit (signed extension)
+    llvm::Value* offset_value = builder->getInt64(offset);
+
+    // Calculate the effective address: addr = base + offset
+    llvm::Value* addr_value = builder->CreateAdd(rs_value, offset_value);
+
+    // Call ee_read64 for the lower 64 bits
+    llvm::Value* lower_value = builder->CreateCall(ee_read64, {
+        llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+        addr_value
+    });
+
+    // Calculate the address for the upper 64 bits: addr_upper = addr + 8
+    llvm::Value* addr_upper = builder->CreateAdd(
+        addr_value,
+        builder->getInt64(8) // Offset by 8 bytes for the upper 64 bits
+    );
+
+    // Call ee_read64 for the upper 64 bits
+    llvm::Value* upper_value = builder->CreateCall(ee_read64, {
+        llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+        addr_upper
+    });
+
+    // Store the 128-bit value into the destination register (rt)
+    builder->CreateStore(
+        lower_value,
+        builder->CreateGEP(
+            builder->getInt64Ty(), gpr_base, builder->getInt64(rt) // GPR uses 128-bit registers
+        )
+    );
+
+    // Store the 128-bit value into the destination register (rt)
+    builder->CreateStore(
+        upper_value,
+        builder->CreateGEP(
+            builder->getInt64Ty(), gpr_base, builder->getInt64(rt + 1) // GPR uses 128-bit registers
+        )
+    );
+
+    // Update the program counter
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_dsrl(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract the destination register (rd)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract the source register (rt)
+    uint8_t sa = (opcode >> 6) & 0x1F;   // Extract the shift amount (sa)
+
+    // Handle 128-bit register access for rt (source register)
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt8Ty()) // Each register is 8-bit
+    );
+
+    // Load the 64-bit value from the rt register
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt64Ty(), builder->CreateGEP(
+        builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2) // GPR uses 64-bit (8 bytes)
+    ));
+
+    // Create the shift amount (sa), which is already a 5-bit number
+    llvm::Value* shift_amount = builder->getInt32(sa); // sa is between 0 and 31, cast to 32-bit
+
+    // Perform the logical right shift on rt by sa
+    llvm::Value* result = builder->CreateLShr(rt_value, shift_amount); // Logical Shift Right (LShr)
+
+    // Store the result into the rd register
+    builder->CreateStore(result, builder->CreateGEP(
+        builder->getInt64Ty(), gpr_base, builder->getInt32(rd * 2) // GPR uses 64-bit registers (8 bytes)
+    ));
+
+    // Emit the update to PC after this operation
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_lh(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    uint8_t base = (opcode >> 21) & 0x1F;  // Extract BASE (bits 21-25)
+    uint8_t rt = (opcode >> 16) & 0x1F;    // Extract RT (bits 16-20)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);  // Extract OFFSET (bits 0-15)
+
+    // Load the base register value
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())  // Pointer to a 32-bit integer
+    );
+    llvm::Value* base_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(base * 4))
+    );
+
+    // Calculate the effective address
+    llvm::Value* offset_value = builder->getInt32(offset);
+    llvm::Value* addr_value = builder->CreateAdd(base_value, offset_value);
+
+    // Call the `ee_read16` function to load the 16-bit value
+    llvm::Value* value_to_load = builder->CreateCall(ee_read16, {
+        llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+        addr_value
+    });
+
+    // Sign-extend the loaded 16-bit value to 32 bits
+    llvm::Value* sign_extended_value = builder->CreateSExt(value_to_load, builder->getInt32Ty());
+
+    // Store the result in the target register
+    llvm::Value* gpr_rt = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    );
+    builder->CreateStore(
+        sign_extended_value,
+        builder->CreateGEP(builder->getInt32Ty(), gpr_rt, builder->getInt32(rt * 4))
+    );
+
+    // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }

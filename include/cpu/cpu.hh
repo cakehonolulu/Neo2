@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cpu/breakpoint.hh>
 #include <bus/bus.hh>
 #include <cstdint>
 #include <functional>
@@ -27,7 +28,7 @@ public:
     CPU(Bus* bus_, EmulationMode mode) : bus(bus_), mode(mode) {}
     virtual ~CPU() = default;
 
-    virtual void run() = 0;
+    virtual void run(Breakpoint *breakpoints) = 0;
     virtual void step() = 0;
     virtual std::uint32_t fetch_opcode() = 0;
     virtual void parse_opcode(std::uint32_t opcode) = 0;

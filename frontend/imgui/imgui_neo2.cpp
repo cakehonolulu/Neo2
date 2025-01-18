@@ -8,6 +8,7 @@
 #include <log/log.hh>
 #include <log/log_term.hh>
 #include <frontends/imgui/imgui_neo2.h>
+#include <cpu/breakpoint.hh>
 
 #include "frontends/imgui/imgui_debug.hh"
 #include "imgui.h"
@@ -181,6 +182,7 @@ void ImGui_Neo2::run(int argc, char **argv)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     ImGuiDebug debug_interface(*this, this->disassembler);
+    Breakpoint breakpoints;
 	std::string bios_file_path;
     std::string status_text = "Idle";
     ImVec4 status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for Idle
@@ -271,7 +273,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
             }
 
-            debug_interface.render_debug_window("EE Debug", &this->ee, debug_interface.use_pseudos_ee, debug_interface.scroll_offset_ee);
+            debug_interface.render_debug_window("EE Debug", &this->ee, debug_interface.use_pseudos_ee, debug_interface.scroll_offset_ee, &breakpoints);
 
             ImGui::End();
         }
@@ -289,7 +291,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
             }
 
-            debug_interface.render_debug_window("IOP Debug", &this->iop, debug_interface.use_pseudos_iop, debug_interface.scroll_offset_iop);
+            debug_interface.render_debug_window("IOP Debug", &this->iop, debug_interface.use_pseudos_iop, debug_interface.scroll_offset_iop, &breakpoints);
 
             ImGui::End();
         }
@@ -393,31 +395,46 @@ void ImGui_Neo2::run(int argc, char **argv)
                     status_color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red for stopping
                     stop_requested = true;  // Set the flag to stop the emulation
                 } else {
+                    if (breakpoints.is_breakpoint_hit())
+                    {
+                        breakpoints.clear_breakpoint_notification();
+                        stop_requested = false;
+                        Neo2::resume_emulation();
+                        is_running = true;
+                    }
+
                     // Start the emulation
                     status_text = "Running";
                     status_color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green for running
                     stop_requested = false; // Reset stop flag
 
                     // Start the emulation loop in separate threads
-                    std::thread ee_thread([this, &is_running, &stop_requested, &status_mutex, &status_text, &status_color, &debug_interface]() {
-                        this->ee.run();
+                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color]() {
+                        while (!stop_requested) {
+                            this->ee.run(&breakpoints);
+                        }
 
-                        std::lock_guard<std::mutex> lock(status_mutex);
+                        // After breakpoint or stopping, reset the status
                         status_text = "Idle";
                         status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for idle
-                        is_running = false;
+                        is_running = false; // Emulation stopped
                     });
 
-                    std::thread iop_thread([this, &stop_requested, &status_mutex, &status_text, &status_color, &debug_interface]() {
-                        while (!Neo2::is_aborted()) this->iop.step();
-                        //this->iop.run();
-                    });
-
-                    // Detach the threads to allow them to run independently
+                    // Detach the thread to allow it to run independently
                     ee_thread.detach();
-                    iop_thread.detach();
-
                     is_running = true;
+                }
+            }
+
+
+            // Check for breakpoint hit
+            if (breakpoints.is_breakpoint_hit()) {
+                if (Neo2::is_emulation_paused())
+                {
+                    status_text = "Breakpoint Hit";
+                    status_color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
+                    is_running = false;
+                    stop_requested = true;
                 }
             }
 
@@ -439,6 +456,9 @@ void ImGui_Neo2::run(int argc, char **argv)
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_offset);
 
             if (ImGui::Button("Step")) {
+                if (breakpoints.is_breakpoint_hit()) breakpoints.clear_breakpoint_notification();
+                Neo2::resume_emulation();
+
                 status_text = "Stepping";
                 status_color = ImVec4(0.0f, 0.0f, 1.0f, 1.0f);
                 if (!Neo2::is_aborted()) {
