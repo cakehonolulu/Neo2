@@ -5,6 +5,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <cpu/cpu.hh>
+#include <cpu/breakpoint.hh>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -23,6 +24,11 @@
 
 #define Store       14
 #define Load        14
+
+enum class RunType {
+    Step,
+    Run
+};
 
 #define EMIT_EE_UPDATE_PC(core, builder, current_pc) \
     do { \
@@ -59,10 +65,12 @@ public:
     EEJIT(EE* core);
     ~EEJIT();
     std::unordered_map<uint32_t, CompiledBlock> block_cache;
-    void execute_opcode();
-    void execute_opcode_();
+    void execute_opcode_step();
+    void execute_opcode_run(Breakpoint *breakpoints);
     void step();
-    void run();
+    void run(Breakpoint *breakpoints);
+
+    RunType exec_type;
 
 private:
     static constexpr size_t CACHE_SIZE = 1024;
@@ -70,8 +78,8 @@ private:
     uint64_t execution_count = 0;
     bool single_instruction_mode = false;
 
-    CompiledBlock* compile_block(uint32_t pc, bool single_instruction);
-    CompiledBlock* compile_block_(uint32_t pc, bool single_instruction);
+    CompiledBlock* compile_block_step(uint32_t pc, bool single_instruction);
+    CompiledBlock* compile_block_run(uint32_t pc, bool single_instruction, Breakpoint *breakpoints);
     void link_blocks();
     void evict_oldest_block();
     CompiledBlock* find_block(uint32_t pc);
@@ -116,9 +124,11 @@ private:
 
     struct OpcodeHandlerEntry {
         std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> funct3_map;
+        std::unordered_map<std::uint8_t, std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>>> subfunc_map; // Nested map for subfunctions
         std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> rs_map;
         std::pair<OpcodeHandler, uint32_t> single_handler = {nullptr, 0};
     };
+
 
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
 
@@ -182,4 +192,10 @@ private:
     void ee_jit_xori(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_mult1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_movz(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_dsllv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_daddiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_dsrl(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_lh(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };

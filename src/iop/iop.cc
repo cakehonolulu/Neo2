@@ -38,8 +38,8 @@ IOP::IOP(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<
 
 IOP::~IOP() {}
 
-void IOP::run() {
-    run_();
+void IOP::run(Breakpoint *breakpoints) {
+    run_(breakpoints);
 }
 
 void IOP::step() {

@@ -16,8 +16,8 @@ class EE : public CPU
     ~EE();
 
     std::function<void()> step_;
-    std::function<void()> run_;
-    void run() override;
+    std::function<void(Breakpoint*)> run_;
+    void run(Breakpoint *breakpoints) override;
     void step() override;
     void reset();
 

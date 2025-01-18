@@ -48,9 +48,9 @@ std::unordered_map<int, float> ee_register_change_timers;
 std::unordered_map<int, float> iop_register_change_timers;
 
 void ImGuiDebug::render_memory_view(Bus *bus) {
-    ImGui::Begin("RAM View");
+    ImGui::Begin("Memory Viewer");
 
-    ImGui::Text("RAM View");
+    ImGui::Text("Memory Viewer");
 
     ImGui::SameLine();
 
@@ -62,7 +62,7 @@ void ImGuiDebug::render_memory_view(Bus *bus) {
         if (ImGuiFileDialog::Instance()->IsOk()) {
             std::string save_path = ImGuiFileDialog::Instance()->GetFilePathName();
             std::ofstream file(save_path, std::ios::out | std::ios::binary);
-            file.write(reinterpret_cast<const char*>(bus->ram.data()), bus->ram.size());
+            file.write(reinterpret_cast<const char *>(bus->ram.data()), bus->ram.size());
             file.close();
         }
         ImGuiFileDialog::Instance()->Close();
@@ -70,26 +70,42 @@ void ImGuiDebug::render_memory_view(Bus *bus) {
 
     ImGui::Separator();
 
-    // Textbox to enter a virtual address and call bus map_to_phys to get the phys address
-    static char address_buffer[9] = "00000000";
+    // Selector for memory region
+    static const char *regions[] = {"RAM", "BIOS"};
+    static int current_region = 0;
+    ImGui::Combo("Memory Region", &current_region, regions, IM_ARRAYSIZE(regions));
 
+    // Textbox to enter a virtual address
+    static char address_buffer[9] = "00000000";
     if (ImGui::InputText("Virtual Address", address_buffer, sizeof(address_buffer), ImGuiInputTextFlags_CharsHexadecimal)) {
-        // Ensure the buffer is null-terminated
-        address_buffer[8] = '\0';
+        address_buffer[8] = '\0'; // Ensure null termination
     }
-    
+
     ImGui::SameLine();
 
-    // Button that calls map_to_phys and displays the physical address
+    // Display result of mapping
+    static std::string map_result;
     if (ImGui::Button("Map to Physical Address")) {
         uint32_t vaddr = std::stoul(address_buffer, nullptr, 16);
         uint32_t paddr = bus->map_to_phys(vaddr, bus->tlb);
-        Logger::info("Virtual Address 0x" + std::string(address_buffer) + " maps to Physical Address 0x" + format("{:08X}", paddr));
+        map_result = "Physical Address: 0x" + format("{:08X}", paddr);
     }
 
-    mem_edit.DrawContents(bus->ram.data(), bus->ram.size());
+    // Show the mapping result
+    if (!map_result.empty()) {
+        ImGui::SameLine();
+        ImGui::Text("%s", map_result.c_str());
+    }
 
     ImGui::Separator();
+
+    // Memory editor view
+    if (current_region == 0) { // RAM
+        mem_edit.DrawContents(bus->ram.data(), bus->ram.size());
+    } else if (current_region == 1) { // BIOS
+        mem_edit.DrawContents(bus->bios.data(), bus->bios.size());
+    }
+
     ImGui::End();
 }
 
@@ -206,32 +222,7 @@ void ImGuiDebug::render_bus_info(const char* window_name, const Bus& bus) {
     }
 }
 
-void ImGuiDebug::add_breakpoint(uint32_t address, CPU& cpu) {
-    if (dynamic_cast<EE*>(&cpu)) {
-        ee_breakpoints.insert(address);
-    } else if (dynamic_cast<IOP*>(&cpu)) {
-        iop_breakpoints.insert(address);
-    }
-}
-
-void ImGuiDebug::remove_breakpoint(uint32_t address, CPU& cpu) {
-    if (dynamic_cast<EE*>(&cpu)) {
-        ee_breakpoints.erase(address);
-    } else if (dynamic_cast<IOP*>(&cpu)) {
-        iop_breakpoints.erase(address);
-    }
-}
-
-bool ImGuiDebug::has_breakpoint(uint32_t address, CPU& cpu) {
-    if (dynamic_cast<EE*>(&cpu)) {
-        return ee_breakpoints.count(address) > 0;
-    } else if (dynamic_cast<IOP*>(&cpu)) {
-        return iop_breakpoints.count(address) > 0;
-    }
-    return false;
-}
-
-void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset) {
+void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset, Breakpoint *breakpoints) {
     ImGui::Begin(window_name);  // Start the combined window
 
     // Create a layout with 2 columns (Disassembly and Registers)
@@ -462,29 +453,49 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     }
 
     ImGui::SeparatorEx(ImGuiSeparatorFlags_Horizontal);
-    
+
     // Breakpoints Section - Below Registers
     ImGui::Text("Breakpoints");
     static uint32_t breakpoint_address = 0;
     ImGui::InputScalar("Breakpoint Address", ImGuiDataType_U32, &breakpoint_address, nullptr, nullptr, "%08X", ImGuiInputTextFlags_CharsHexadecimal);
-    
+
+    // Determine if CPU is EE or IOP using dynamic_cast
+    bool is_ee = (dynamic_cast<EE*>(cpu) != nullptr); // Check if cpu is EE
+
+    if (is_ee) {
+        ImGui::Text("EE Core selected");
+    } else {
+        ImGui::Text("IOP Core selected");
+    }
+
     if (ImGui::Button("Add Breakpoint")) {
-        add_breakpoint(breakpoint_address, *cpu);
+        // Add breakpoint based on selected core (EE or IOP)
+        if (is_ee) {
+            breakpoints->add_breakpoint(breakpoint_address, CoreType::EE);
+        } else {
+            breakpoints->add_breakpoint(breakpoint_address, CoreType::IOP);
+        }
     }
 
     ImGui::SameLine();
-    
+
     if (ImGui::Button("Remove Breakpoint")) {
-        remove_breakpoint(breakpoint_address, *cpu);
+        // Remove breakpoint based on selected core (EE or IOP)
+        if (is_ee) {
+            breakpoints->remove_breakpoint(breakpoint_address, CoreType::EE);
+        } else {
+            breakpoints->remove_breakpoint(breakpoint_address, CoreType::IOP);
+        }
     }
 
     ImGui::Text("Breakpoints:");
-    if (auto* ee = dynamic_cast<EE*>(cpu)) {
-        for (const auto& bp : ee_breakpoints) {
+
+    if (is_ee) {
+        for (const auto& bp : breakpoints->ee_breakpoints) {
             ImGui::BulletText("EE: 0x%08X", bp);
         }
-    } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
-        for (const auto& bp : iop_breakpoints) {
+    } else {
+        for (const auto& bp : breakpoints->iop_breakpoints) {
             ImGui::BulletText("IOP: 0x%08X", bp);
         }
     }
