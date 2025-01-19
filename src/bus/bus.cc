@@ -19,6 +19,9 @@ Bus::Bus(BusMode mode) : tlb(32)
 {
 	Logger::set_subsystem("BUS");
 
+    // Scratchpad RAM (16 KB)
+    scratchpad.resize(16 * 1024);
+
     // BIOS (4MB)
     bios.resize(1024 * 1024 * 4);
 
@@ -28,6 +31,8 @@ Bus::Bus(BusMode mode) : tlb(32)
     std::fill(bios.begin(), bios.end(), 0);
 
     std::fill(ram.begin(), ram.end(), 0);
+
+    std::fill(scratchpad.begin(), scratchpad.end(), 0);
 
     switch (mode)
     {

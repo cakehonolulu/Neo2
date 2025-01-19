@@ -70,7 +70,11 @@ public:
     void step();
     void run(Breakpoint *breakpoints);
 
-    RunType exec_type;
+    RunType exec_type = RunType::Run;
+
+    std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> get_block_cache() const {
+        return std::make_shared<const std::unordered_map<uint32_t, CompiledBlock>>(block_cache);
+    }
 
 private:
     static constexpr size_t CACHE_SIZE = 1024;
@@ -116,6 +120,9 @@ private:
 
     llvm::FunctionType* ee_tlb_write_type;
     llvm::Function* ee_tlb_write;
+
+    llvm::FunctionType* ee_update_address_mapping_type;
+    llvm::Function* ee_update_address_mapping;
 
     llvm::FunctionType* ee_write32_dbg_type;
     llvm::Function* ee_write32_dbg;
