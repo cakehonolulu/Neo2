@@ -20,6 +20,7 @@ using fmt::format;
 std::uint32_t MCH_DRD = 0;
 std::uint32_t MCH_RICM = 0;
 std::uint32_t rdram_sdevid = 0;
+std::uint32_t intc_mask = 0;
 
 void Bus::fmem_init() {
     tlb = TLB(32);
@@ -77,6 +78,14 @@ void Bus::fmem_init() {
 template <typename T>
 T io_read(std::uint32_t address) {
     switch (address) {
+        case 0x1000F010:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<uint32_t>(intc_mask);
+            }
+            break;
+        }
+
         case 0x1000F100:
         case 0x1000F110:
         case 0x1000F120:
@@ -148,6 +157,14 @@ T io_read(std::uint32_t address) {
 template <typename T>
 void io_write(std::uint32_t address, T value) {
     switch (address) {
+        case 0x1000F010:
+        {
+            if constexpr (sizeof(T) == 4) {
+                intc_mask = value;;
+            }
+            break;
+        }
+
         case 0x1000F100:
         case 0x1000F110:
         case 0x1000F120:

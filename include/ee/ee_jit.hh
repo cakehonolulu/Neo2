@@ -205,4 +205,6 @@ private:
     void ee_jit_lq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_dsrl(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_lh(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_cache(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sllv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 };
