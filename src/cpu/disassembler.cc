@@ -60,6 +60,7 @@ void Disassembler::initialize_opcode_table() {
     opcode_mnemonics[0x28] = OpcodeEntry("sb", InstructionType::IType);
     opcode_mnemonics[0x29] = OpcodeEntry("sh", InstructionType::IType);
     opcode_mnemonics[0x2B] = OpcodeEntry("sw", InstructionType::IType);
+    opcode_mnemonics[0x2F] = OpcodeEntry("cache", InstructionType::IType);
     opcode_mnemonics[0x37] = OpcodeEntry("ld", InstructionType::IType);
     opcode_mnemonics[0x39] = OpcodeEntry("swc1", InstructionType::IType);
     opcode_mnemonics[0x3F] = OpcodeEntry("sd", InstructionType::IType);
@@ -68,6 +69,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x00] = OpcodeEntry("sll", InstructionType::RType);
     extended_opcodes[0x02] = OpcodeEntry("srl", InstructionType::RType);
     extended_opcodes[0x03] = OpcodeEntry("sra", InstructionType::RType);
+    extended_opcodes[0x04] = OpcodeEntry("sllv", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
     extended_opcodes[0x0A] = OpcodeEntry("movz", InstructionType::RType);

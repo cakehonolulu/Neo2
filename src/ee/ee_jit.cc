@@ -272,6 +272,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = {&EEJIT::ee_jit_sll, Default}; // SLL opcode
     opcode_table[0x00].funct3_map[0x02] = {&EEJIT::ee_jit_srl, Default}; // SRL opcode
     opcode_table[0x00].funct3_map[0x03] = {&EEJIT::ee_jit_sra, Default}; // SRA opcode
+    opcode_table[0x00].funct3_map[0x04] = {&EEJIT::ee_jit_sllv, Default}; // SLLV opcode
     opcode_table[0x00].funct3_map[0x08] = {&EEJIT::ee_jit_jr, Default}; // JR opcode
     opcode_table[0x00].funct3_map[0x09] = {&EEJIT::ee_jit_jalr, Default}; // JALR opcode
     opcode_table[0x00].funct3_map[0x0A] = {&EEJIT::ee_jit_movz, Default}; // MOVZ opcode
@@ -336,6 +337,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x28].single_handler = {&EEJIT::ee_jit_sb, Store}; // SB opcode
     opcode_table[0x29].single_handler = {&EEJIT::ee_jit_sh, Store}; // SH opcode
     opcode_table[0x2B].single_handler = {&EEJIT::ee_jit_sw, Store}; // SW opcode
+    opcode_table[0x2F].single_handler = {&EEJIT::ee_jit_cache, Default}; // SW opcode
     opcode_table[0x37].single_handler = {&EEJIT::ee_jit_ld, Load}; // LD opcode
     opcode_table[0x39].single_handler = {&EEJIT::ee_jit_swc1, Store}; // SWC1 opcode
     opcode_table[0x3F].single_handler = {&EEJIT::ee_jit_sd, Store}; // SD opcode
@@ -3101,5 +3103,59 @@ void EEJIT::ee_jit_lh(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     );
 
     // Emit the update to PC after this operation
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+
+void EEJIT::ee_jit_cache(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // TODO?
+
+    // Emit the update to PC after this operation
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_sllv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // Extract the registers from the opcode
+    uint32_t rs = (opcode >> 21) & 0x1F;  // Bits 21-25
+    uint32_t rt = (opcode >> 16) & 0x1F;  // Bits 16-20
+    uint32_t rd = (opcode >> 11) & 0x1F;  // Bits 11-15
+
+    // Load the base address of the registers
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt32Ty()) // 32-bit signed integers
+    );
+
+    // Load the value from the rt register
+    llvm::Value* rt_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 2)) // Access rt register
+    );
+
+    // Load the value from the rs register (shift amount)
+    llvm::Value* rs_value = builder->CreateLoad(
+        builder->getInt32Ty(),
+        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 2)) // Access rs register
+    );
+
+    // Extract the low-order 5 bits from GPR[rs]
+    llvm::Value* shift_amount = builder->CreateAnd(
+        rs_value,
+        llvm::ConstantInt::get(builder->getInt32Ty(), 0x1F) // Mask to lower 5 bits
+    );
+
+    // Perform the logical left shift (GPR[rd] = GPR[rt] << shift_amount)
+    llvm::Value* shifted_value = builder->CreateShl(rt_value, shift_amount);
+
+    // Sign-extend the 32-bit result to 64 bits and store it in the rd register
+    llvm::Value* sign_extended_value = builder->CreateSExt(shifted_value, builder->getInt64Ty());
+
+    // Store the result in the rd register
+    builder->CreateStore(
+        sign_extended_value,
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2)) // rd * 2 for 64-bit offset
+    );
+
+    // Update the program counter after the instruction is executed
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
