@@ -49,6 +49,10 @@ public:
     void step();
     void run();
 
+    std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> get_block_cache() const {
+        return std::make_shared<const std::unordered_map<uint32_t, CompiledBlock>>(block_cache);
+    }
+
 private:
     static constexpr size_t CACHE_SIZE = 1024;
     std::vector<uint32_t> lru_queue;

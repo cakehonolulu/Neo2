@@ -23,6 +23,7 @@ class Bus
 
     std::vector<std::uint8_t> bios;
     std::vector<std::uint8_t> ram;
+    std::vector<std::uint8_t> scratchpad;
 
     TLB tlb;
     uintptr_t *address_space_r;

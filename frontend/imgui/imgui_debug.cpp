@@ -71,7 +71,7 @@ void ImGuiDebug::render_memory_view(Bus *bus) {
     ImGui::Separator();
 
     // Selector for memory region
-    static const char *regions[] = {"RAM", "BIOS"};
+    static const char *regions[] = {"RAM", "BIOS", "Scratchpad"};
     static int current_region = 0;
     ImGui::Combo("Memory Region", &current_region, regions, IM_ARRAYSIZE(regions));
 
@@ -104,6 +104,8 @@ void ImGuiDebug::render_memory_view(Bus *bus) {
         mem_edit.DrawContents(bus->ram.data(), bus->ram.size());
     } else if (current_region == 1) { // BIOS
         mem_edit.DrawContents(bus->bios.data(), bus->bios.size());
+    } else if (current_region == 2) { // Scratchpad
+        mem_edit.DrawContents(bus->scratchpad.data(), bus->scratchpad.size());
     }
 
     ImGui::End();
@@ -117,7 +119,15 @@ void ImGuiDebug::render_jit_blocks(const char* window_name, CPU& cpu) {
 
     static std::unordered_map<uint32_t, bool> block_open_state;
 
-    const std::unordered_map<uint32_t, CompiledBlock>* block_cache = cpu.get_block_cache();
+    // Use shared_ptr to fetch block cache
+    std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> block_cache = cpu.get_block_cache();
+
+    if (!block_cache || block_cache->empty()) {
+        ImGui::Text("No JIT blocks available.");
+        ImGui::EndChild();
+        return;
+    }
+
     if (block_cache && ImGui::BeginTable("jit_table", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Start PC");
         ImGui::TableSetupColumn("End PC");
@@ -165,6 +175,9 @@ std::unordered_map<int, TLBEntry> previous_tlb_entries;
 void ImGuiDebug::render_bus_info(const char* window_name, const Bus& bus) {
     ImGui::Text("TLB Mappings");
 
+    // Define a stringstream to store the TLB entry information
+    std::stringstream tlb_info;
+
     // Start table with 5 columns: entry_hi, entry_lo0, entry_lo1, page_mask, global
     if (ImGui::BeginTable("tlb_table", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         // Define headers for each column
@@ -196,18 +209,23 @@ void ImGuiDebug::render_bus_info(const char* window_name, const Bus& bus) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::Text("0x%08X", current_entry.entry_hi);
+            tlb_info << "Entry Hi: 0x" << std::hex << current_entry.entry_hi << "\n";
 
             ImGui::TableNextColumn();
             ImGui::Text("0x%08X", current_entry.entry_lo0);
+            tlb_info << "Entry Lo0: 0x" << std::hex << current_entry.entry_lo0 << "\n";
 
             ImGui::TableNextColumn();
             ImGui::Text("0x%08X", current_entry.entry_lo1);
+            tlb_info << "Entry Lo1: 0x" << std::hex << current_entry.entry_lo1 << "\n";
 
             ImGui::TableNextColumn();
             ImGui::Text("0x%08X", current_entry.page_mask);
+            tlb_info << "Page Mask: 0x" << std::hex << current_entry.page_mask << "\n";
 
             ImGui::TableNextColumn();
             ImGui::Text(current_entry.global ? "Yes" : "No");
+            tlb_info << "Global: " << (current_entry.global ? "Yes" : "No") << "\n";
 
             // Pop style color after the entry is displayed
             ImGui::PopStyleColor();
@@ -220,6 +238,14 @@ void ImGuiDebug::render_bus_info(const char* window_name, const Bus& bus) {
 
         ImGui::EndTable();
     }
+
+    // Add a button to copy the table information to the clipboard
+    if (ImGui::Button("Copy TLB Info to Clipboard")) {
+        ImGui::SetClipboardText(tlb_info.str().c_str());
+    }
+
+    // Add a text box to display the TLB information and make it selectable
+    ImGui::InputTextMultiline("TLB Info", (char*)tlb_info.str().c_str(), tlb_info.str().length() + 1, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_ReadOnly);
 }
 
 void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& pseudos, int& scroll_offset, Breakpoint *breakpoints) {

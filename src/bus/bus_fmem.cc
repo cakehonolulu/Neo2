@@ -210,6 +210,10 @@ void io_write(std::uint32_t address, T value) {
 
 std::uint8_t Bus::fmem_read8(std::uint32_t address)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        return scratchpad[address - 0x70000000];
+    }
+
     address = map_to_phys(address, tlb); // Map the address to physical address
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -230,6 +234,10 @@ std::uint8_t Bus::fmem_read8(std::uint32_t address)
 
 std::uint16_t Bus::fmem_read16(std::uint32_t address)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        return *reinterpret_cast<std::uint16_t*>(&scratchpad[address - 0x70000000]);
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -250,6 +258,10 @@ std::uint16_t Bus::fmem_read16(std::uint32_t address)
 
 std::uint32_t Bus::fmem_read32(std::uint32_t address)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        return *reinterpret_cast<std::uint32_t*>(&scratchpad[address - 0x70000000]);
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -275,6 +287,10 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
 
 std::uint64_t Bus::fmem_read64(std::uint32_t address)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        return *reinterpret_cast<std::uint64_t*>(&scratchpad[address - 0x70000000]);
+    }
+    
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -295,6 +311,15 @@ std::uint64_t Bus::fmem_read64(std::uint32_t address)
 
 uint128_t Bus::fmem_read128(uint32_t address) {
     uint128_t result;
+
+    if (address >= 0x70000000 && address < 0x70004000) {
+        uint64_t lower = *reinterpret_cast<uint64_t*>(&scratchpad[address - 0x70000000]);
+        uint64_t upper = *reinterpret_cast<uint64_t*>(&scratchpad[address - 0x70000000 + 8]);
+        result.u64[0] = lower;
+        result.u64[1] = upper;
+        return result;
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;
     const auto offset = address & 0xFFF;
@@ -313,6 +338,11 @@ uint128_t Bus::fmem_read128(uint32_t address) {
 
 void Bus::fmem_write8(std::uint32_t address, std::uint8_t value)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        scratchpad[address - 0x70000000] = value;
+        return;
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -330,6 +360,11 @@ void Bus::fmem_write8(std::uint32_t address, std::uint8_t value)
 
 void Bus::fmem_write16(std::uint32_t address, std::uint16_t value)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        *reinterpret_cast<std::uint16_t*>(&scratchpad[address - 0x70000000]) = value;
+        return;
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -347,6 +382,11 @@ void Bus::fmem_write16(std::uint32_t address, std::uint16_t value)
 
 void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        *reinterpret_cast<std::uint32_t*>(&scratchpad[address - 0x70000000]) = value;
+        return;
+    }
+
     address = map_to_phys(address, tlb);
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
@@ -364,6 +404,11 @@ void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
 
 void Bus::fmem_write64(std::uint32_t address, std::uint64_t value)
 {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        *reinterpret_cast<std::uint64_t*>(&scratchpad[address - 0x70000000]) = value;
+        return;
+    }
+
     address = map_to_phys(address, tlb);  // Map the virtual address to a physical address
     const auto page = address >> 12;                        // Divide the address by 4KB to get the page number
     const auto offset = address & 0xFFF;                    // The offset inside the 4KB page
@@ -380,6 +425,15 @@ void Bus::fmem_write64(std::uint32_t address, std::uint64_t value)
 }
 
 void Bus::fmem_write128(uint32_t address, uint128_t value) {
+    if (address >= 0x70000000 && address < 0x70004000) {
+        // Split the 128-bit value into two 64-bit values
+        uint64_t lower = value.u64[0];
+        uint64_t upper = value.u64[1];
+        *reinterpret_cast<uint64_t*>(&scratchpad[address - 0x70000000]) = lower;
+        *reinterpret_cast<uint64_t*>(&scratchpad[address - 0x70000000 + 8]) = upper;
+        return;
+    }
+
     address = map_to_phys(address, tlb);  // Map virtual address to physical address
     const auto page = address >> 12;                        // Calculate page (address >> 12 gives the page number)
     const auto offset = address & 0xFFF;                    // Calculate offset within the page (address & 0xFFF gives the offset)

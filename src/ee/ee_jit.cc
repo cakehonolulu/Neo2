@@ -211,7 +211,6 @@ EEJIT::EEJIT(EE* core) : core(core) {
         module.get()
     );
 
-
     ee_write32_dbg_type = llvm::FunctionType::get(
         llvm::Type::getVoidTy(*context),
         {builder->getInt64Ty(),
@@ -226,7 +225,27 @@ EEJIT::EEJIT(EE* core) : core(core) {
         llvm::Function::ExternalLinkage,
         "ee_write32_dbg", module.get()
     );
-    
+
+    ee_update_address_mapping_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context),
+        {
+            builder->getInt64Ty(), // EE* core
+            builder->getInt32Ty(),                              // uint32_t entry_hi
+            builder->getInt32Ty(),                              // uint32_t page_mask
+            builder->getInt32Ty(),                              // uint32_t entry_lo0
+            builder->getInt32Ty(),                              // uint32_t entry_lo1
+            builder->getInt1Ty()                                // bool global
+        },
+        false
+    );
+
+    // Create the function
+    ee_update_address_mapping = llvm::Function::Create(
+        ee_update_address_mapping_type,
+        llvm::Function::ExternalLinkage,
+        "ee_update_address_mapping",
+        module.get()
+    );
 
     ready = true;
 }
@@ -364,6 +383,28 @@ extern "C" uint128_t ee_read128(EE* core, uint32_t addr) {
 
 extern "C" void ee_tlb_write(EE* core, uint32_t index, const TLBEntry& entry) {
     core->bus->tlb.write_entry(index, entry);
+}
+
+void update_address_mapping(EE* core, uint32_t entry_hi, uint32_t page_mask, uint32_t entry_lo0, uint32_t entry_lo1, bool global) {
+    // Update the address spaces with the new TLB entry
+    uint32_t vpn2_base = entry_hi & ~(page_mask);
+    for (uint32_t i = 0; i < (page_mask >> 12) + 1; ++i) {
+        uint32_t vpn2 = vpn2_base + (i << 12);
+
+        // Map entry_lo0
+        uintptr_t pfn0 = entry_lo0 << 12;
+        core->bus->address_space_r[vpn2 >> 12] = (uintptr_t)&core->bus->ram[pfn0];
+        core->bus->address_space_w[vpn2 >> 12] = (uintptr_t)&core->bus->ram[pfn0];
+
+        // Map entry_lo1
+        uintptr_t pfn1 = entry_lo1 << 12;
+        core->bus->address_space_r[(vpn2 + (1 << 12)) >> 12] = (uintptr_t)&core->bus->ram[pfn1];
+        core->bus->address_space_w[(vpn2 + (1 << 12)) >> 12] = (uintptr_t)&core->bus->ram[pfn1];
+    }
+}
+
+extern "C" void ee_update_address_mapping(EE* core, uint32_t entry_hi, uint32_t page_mask, uint32_t entry_lo0, uint32_t entry_lo1, bool global) {
+    update_address_mapping(core, entry_hi, page_mask, entry_lo0, entry_lo1, global);
 }
 
 extern "C" void ee_write32_dbg(EE* core, uint32_t addr, uint32_t value, uint32_t pc) {
@@ -541,7 +582,7 @@ CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instructi
                 return nullptr;
             }
 
-            current_pc = core->branch_dest; // Set the PC to the branch destination
+            current_pc = core->branch_dest + 4; // Set the PC to the branch destination
         }
 
         uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
@@ -1146,86 +1187,6 @@ void EEJIT::ee_jit_tlbwi(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
         index,
         entry
     });
-
-    // Update address space mappings based on the new TLB entry
-    /*llvm::Value* address_space_r_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->bus->address_space_r)),
-        llvm::PointerType::getUnqual(builder->getInt64Ty())
-    );
-    llvm::Value* address_space_w_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->bus->address_space_w)),
-        llvm::PointerType::getUnqual(builder->getInt64Ty())
-    );
-
-    // Calculate vpn2, pfn0, pfn1 dynamically with LLVM
-    llvm::Value* vpn2 = builder->CreateLShr(entry_hi, builder->getInt32(13));  // vpn2 = (entry_hi >> 13)
-    vpn2 = builder->CreateAnd(vpn2, builder->CreateNot(builder->CreateLShr(page_mask, builder->getInt32(13)))); // vpn2 &= ~(page_mask >> 13)
-
-    llvm::Value* pfn0 = builder->CreateLShr(entry_lo0, builder->getInt32(6));  // pfn0 = (entry_lo0 >> 6)
-    pfn0 = builder->CreateAnd(pfn0, builder->getInt32(0xFFFFF));  // pfn0 &= 0xFFFFF
-
-    llvm::Value* pfn1 = builder->CreateLShr(entry_lo1, builder->getInt32(6));  // pfn1 = (entry_lo1 >> 6)
-    pfn1 = builder->CreateAnd(pfn1, builder->getInt32(0xFFFFF));  // pfn1 &= 0xFFFFF
-
-    // Number of entries to loop over based on page_mask
-    llvm::Value* num_entries = builder->CreateAdd(builder->CreateLShr(page_mask, builder->getInt32(12)), builder->getInt32(1)); // (page_mask >> 12) + 1
-
-    // Dynamically generated address space updates using LLVM control flow
-    llvm::Value* i = builder->CreateAlloca(builder->getInt32Ty(), nullptr, "i"); // Allocate space for i
-    builder->CreateStore(builder->getInt32(0), i);  // Initialize i to 0
-
-    llvm::BasicBlock* loop_header = llvm::BasicBlock::Create(*context, "loop_header", builder->GetInsertBlock()->getParent());
-    llvm::BasicBlock* loop_body = llvm::BasicBlock::Create(*context, "loop_body", builder->GetInsertBlock()->getParent());
-    llvm::BasicBlock* loop_end = llvm::BasicBlock::Create(*context, "loop_end", builder->GetInsertBlock()->getParent());
-
-    builder->CreateBr(loop_header);
-    builder->SetInsertPoint(loop_header);
-
-    // Load the current value of i and compare it with num_entries
-    llvm::Value* i_val = builder->CreateLoad(builder->getInt32Ty(), i, "i_val");
-    llvm::Value* cond = builder->CreateICmpSLT(i_val, num_entries);  // i < num_entries
-    builder->CreateCondBr(cond, loop_body, loop_end);  // If true, go to loop_body; otherwise, exit
-
-    builder->SetInsertPoint(loop_body);
-
-    // Correctly calculate the address by adding pfn0 + i and then multiplying by PAGE_SIZE
-    llvm::Value* pfn0_plus_i = builder->CreateAdd(pfn0, i_val);  // pfn0 + i
-    llvm::Value* offset = builder->CreateMul(pfn0_plus_i, builder->getInt32(PAGE_SIZE)); // (pfn0 + i) * PAGE_SIZE
-
-    llvm::Value* r_addr = builder->CreateGEP(builder->getInt64Ty(), address_space_r_base, offset);
-    llvm::Value* w_addr = builder->CreateGEP(builder->getInt64Ty(), address_space_w_base, offset);
-
-    llvm::Value* ram_ptr_val = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(&core->bus->ram[0])),
-        llvm::PointerType::getUnqual(builder->getInt8Ty()) // We need a pointer to the memory location (int8 or appropriate type)
-    );
-
-    ram_ptr_val = builder->CreateGEP(builder->getInt8Ty(), ram_ptr_val, offset);  // Add offset to the base RAM address
-    builder->CreateStore(ram_ptr_val, r_addr);
-
-    llvm::Value* condition = builder->CreateICmpEQ(g_bit, llvm::ConstantInt::get(builder->getInt1Ty(), 0)); // g_bit == 0 (false)
-
-    // Create a basic block for the conditional store
-    llvm::BasicBlock* store_block = llvm::BasicBlock::Create(*context, "store_block", builder->GetInsertBlock()->getParent());
-    llvm::BasicBlock* after_store_block = llvm::BasicBlock::Create(*context, "after_store_block", builder->GetInsertBlock()->getParent());
-
-    // Conditionally branch based on g_bit
-    builder->CreateCondBr(condition, store_block, after_store_block);
-
-    // Insert store operation in the store_block
-    builder->SetInsertPoint(store_block);
-    builder->CreateStore(ram_ptr_val, w_addr);  // Store only if g_bit is 0
-    builder->CreateBr(after_store_block);  // Continue after the store block
-
-    // Insert the code after the store (if no store occurs, control will flow here)
-    builder->SetInsertPoint(after_store_block);
-
-    // Increment `i`
-    llvm::Value* next_i = builder->CreateAdd(i_val, builder->getInt32(1));
-    builder->CreateStore(next_i, i);  // Store the incremented value back into i
-    builder->CreateBr(loop_header);
-
-    builder->SetInsertPoint(loop_end);*/
 
     // Update PC
     EMIT_EE_UPDATE_PC(core, builder, current_pc);

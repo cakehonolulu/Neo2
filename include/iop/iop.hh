@@ -19,10 +19,11 @@ public:
     void step() override;
     void reset();
 
-    const std::unordered_map<uint32_t, CompiledBlock>* get_block_cache() const override {
-      return jit ? &jit->block_cache : nullptr;
+    std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> get_block_cache() const override {
+      // Return a shared pointer to the block cache if JIT is available
+      return jit ? jit->get_block_cache() : nullptr;
     }
-    
+
     std::uint32_t fetch_opcode() override;
     std::uint32_t fetch_opcode(std::uint32_t pc_);
     void parse_opcode(std::uint32_t opcode) override;
