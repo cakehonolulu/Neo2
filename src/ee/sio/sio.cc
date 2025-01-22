@@ -1,4 +1,4 @@
-#include <sio/sio.hh>
+#include <ee/sio/sio.hh>
 #include <log/log.hh>
 
 #if __has_include(<format>)
@@ -9,7 +9,7 @@ using std::format;
 using fmt::format;
 #endif
 
-SIORegisters SIO::sio = {};
+SIORegisters SIO::sio = {0};
 std::string SIO::ee_tx_buffer;
 
 void SIO::write(uint32_t address, uint32_t value) {

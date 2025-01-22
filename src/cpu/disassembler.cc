@@ -70,6 +70,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x02] = OpcodeEntry("srl", InstructionType::RType);
     extended_opcodes[0x03] = OpcodeEntry("sra", InstructionType::RType);
     extended_opcodes[0x04] = OpcodeEntry("sllv", InstructionType::RType);
+    extended_opcodes[0x07] = OpcodeEntry("srav", InstructionType::RType);
     extended_opcodes[0x08] = OpcodeEntry("jr", InstructionType::JType, true);
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
     extended_opcodes[0x0A] = OpcodeEntry("movz", InstructionType::RType);
@@ -93,6 +94,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x2A] = OpcodeEntry("slt", InstructionType::RType);
     extended_opcodes[0x2B] = OpcodeEntry("sltu", InstructionType::RType);
     extended_opcodes[0x2D] = OpcodeEntry("dmove", InstructionType::RType);
+    extended_opcodes[0x38] = OpcodeEntry("dsll", InstructionType::RType);
     extended_opcodes[0x3A] = OpcodeEntry("dsrl", InstructionType::RType);
     extended_opcodes[0x3C] = OpcodeEntry("dsll32", InstructionType::RType);
     extended_opcodes[0x3F] = OpcodeEntry("dsra32", InstructionType::RType);

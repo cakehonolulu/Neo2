@@ -13,7 +13,9 @@ using std::format;
 using fmt::format;
 #endif
 
-EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode), jit(std::make_unique<EEJIT>(this))
+EE::EE(Bus* bus_, EmulationMode mode) : CPU(bus_, mode),
+vu0(4 * 1024, 4 * 1024), vu1(16 * 1024, 16 * 1024),
+jit(std::make_unique<EEJIT>(this))
 {
     Logger::set_subsystem("EE");
 
@@ -71,6 +73,9 @@ void EE::reset() {
 
     cop0_registers[15] = 0x59;
     //cop0_registers[15] = 0x2E20;
+
+    vu0.reset();
+    vu1.reset();
 };
 
 std::uint32_t EE::fetch_opcode()

@@ -2,6 +2,7 @@
 
 #include <bus/bus.hh>
 #include <cpu/cpu.hh>
+#include <ee/vu/vu.hh>
 #include <cstdint>
 #include <ee/ee_interpreter.hh>
 #include <functional>
@@ -44,6 +45,9 @@ class EE : public CPU
     uint128_t hi;
 
     std::uint64_t cycles = 0;
+
+    VU vu0;
+    VU vu1;
 
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;

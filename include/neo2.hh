@@ -12,6 +12,8 @@ class Neo2 {
         EE,
         IOP,
         Bus,
+        EE_INTC,
+        EE_DMAC,
         Disassembler,
         Frontend
     };

@@ -10,5 +10,13 @@ target_sources(neo2
         ee/ee.cc
         ee/ee_interpreter.cc
         ee/ee_jit.cc
-        sio/sio.cc
+        ee/sio/sio.cc
+        ee/intc/intc.cc
+        gif/gif.cc
+        gs/gs.cc
+        ee/timer/timer.cc
+        ee/dmac/dmac.cc
+        ee/vu/vu.cc
+        ee/vif/vif.cc
+        ipu/ipu.cc
         log/log.cpp)

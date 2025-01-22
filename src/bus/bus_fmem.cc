@@ -1,15 +1,15 @@
 #include <bus/bus.hh>
 #include <bus/bus_fmem.hh>
-#include <sio/sio.hh>
+#include <ee/sio/sio.hh>
 #include <log/log.hh>
 #include <cstring>
 #include <execinfo.h>
 #include <cxxabi.h>
 #include <unistd.h>
 #include <cstdio>
+#include <neo2.hh>
 
 #if __has_include(<format>)
-#include "neo2.hh"
 #include <format>
 using std::format;
 #else
@@ -20,10 +20,11 @@ using fmt::format;
 std::uint32_t MCH_DRD = 0;
 std::uint32_t MCH_RICM = 0;
 std::uint32_t rdram_sdevid = 0;
-std::uint32_t intc_mask = 0;
+
+std::uint32_t dev9_delay3 = 0;
 
 void Bus::fmem_init() {
-    tlb = TLB(32);
+    tlb = TLB(42);
 
     // Initialize TLB entries for BIOS and RAM
     TLBEntry entry;
@@ -34,13 +35,13 @@ void Bus::fmem_init() {
     entry.entry_lo0 = 0x1FC00000 >> 12; // Physical address shifted (PFN for 0x1FC00000)
     entry.entry_lo1 = 0x1FC01000 >> 12; // Next page
     entry.global = true;
-    tlb.write_entry(0, entry);
+    tlb.write_entry_(0, entry);
 
     // KSEG0 (cached BIOS)
     entry.entry_hi = 0x9FC00000;
     entry.entry_lo0 = 0x1FC00000 >> 12; // Physical address shifted (PFN for 0x1FC00000)
     entry.entry_lo1 = 0x1FC01000 >> 12; // Next page
-    tlb.write_entry(1, entry);
+    tlb.write_entry_(1, entry);
 
     // KUSEG (RAM)
     entry.page_mask = 0x007FE000; // 4MB pages
@@ -48,7 +49,41 @@ void Bus::fmem_init() {
     entry.entry_lo0 = 0x00000000 >> 12; // Physical address shifted (PFN for 0x00000000)
     entry.entry_lo1 = 0x00400000 >> 12; // For next 4MB page
     entry.global = true;
-    tlb.write_entry(2, entry);
+    tlb.write_entry_(2, entry);
+    // KSEG1 (uncached BIOS, 4KB pages)
+    /*entry.page_mask = 0x00001FFF; // 4KB page size (mask)
+    entry.vpn2 = 0xBFC00000 >> 13; // VPN2 (Virtual Page Number / 2)
+    entry.pfn0 = 0x1FC00000 >> 12; // PFN0 (Physical Frame Number for even page)
+    entry.pfn1 = 0x1FC01000 >> 12; // PFN1 (Physical Frame Number for odd page)
+    entry.v0 = true;               // Even page valid
+    entry.v1 = true;               // Odd page valid
+    entry.d0 = true;               // Even page writable (dirty)
+    entry.d1 = true;               // Odd page writable (dirty)
+    entry.c0 = 2;                  // Cache mode for even page: Uncached
+    entry.c1 = 2;                  // Cache mode for odd page: Uncached
+    entry.asid = 0;                // Address Space ID (not relevant here)
+    entry.global = true;           // Global mapping
+    tlb.write_entry_(0, entry);
+
+    // KSEG0 (cached BIOS, 4KB pages)
+    entry.vpn2 = 0x9FC00000 >> 13; // VPN2 (Virtual Page Number / 2)
+    entry.c0 = 3;                  // Cache mode for even page: Cached
+    entry.c1 = 3;                  // Cache mode for odd page: Cached
+    tlb.write_entry_(1, entry);
+
+    // KUSEG (RAM, 4MB pages)
+    entry.page_mask = 0x007FE000;  // 4MB page size (mask)
+    entry.vpn2 = 0x00000000 >> 13; // VPN2 (Virtual Page Number / 2)
+    entry.pfn0 = 0x00000000 >> 12; // PFN0 (Physical Frame Number for even page)
+    entry.pfn1 = 0x00400000 >> 12; // PFN1 (Physical Frame Number for odd page)
+    entry.v0 = true;               // Even page valid
+    entry.v1 = true;               // Odd page valid
+    entry.d0 = true;               // Even page writable (dirty)
+    entry.d1 = true;               // Odd page writable (dirty)
+    entry.c0 = 3;                  // Cache mode for even page: Cached
+    entry.c1 = 3;                  // Cache mode for odd page: Cached
+    entry.global = true;           // Global mapping
+    tlb.write_entry_(2, entry);*/
 
     // PS2's Address Space is 4GB, divided into 4KB pages
     address_space_r = new uintptr_t[0x100000];  // Readable memory pages (4KB * 1024 * 1024 = 4GB)
@@ -76,12 +111,73 @@ void Bus::fmem_init() {
 }
 
 template <typename T>
-T io_read(std::uint32_t address) {
+T io_read(Bus *bus, std::uint32_t address) {
     switch (address) {
+        case 0x10000000 ... 0x10001830:
+        if constexpr (sizeof(T) != 16) {
+            return static_cast<T>(bus->timers.read(address));
+        }
+        break;
+
+        case 0x10002000 ... 0x10002030:
+        if constexpr (sizeof(T) != 16) {
+            return static_cast<T>(bus->ipu.read(address));
+        }
+        break;
+
+        case 0x10003000 ... 0x100030A0:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->gif.read(address));
+            }
+            break;
+
+        case 0x10003800 ... 0x10005FFF:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->vif.read(address));
+            }
+            break;   
+
+        case 0x10006000 ... 0x1000600C:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->gif.read(address));
+            }
+            break;
+
+
+        case 0x10007000 ... 0x10007020:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->ipu.read(address));
+            }
+            break;
+        
+        case 0x10008000 ... 0x1000D4FF:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->dmac.read_register(address));
+            }
+            break;
+        }
+
+        case 0x1000E000 ... 0x1000E050:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->dmac.read_register(address));
+            }
+            break;
+        }
+
+        case 0x1000F000:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<uint32_t>(bus->ee_intc.read(address));
+            }
+            break;
+        }
+
         case 0x1000F010:
         {
             if constexpr (sizeof(T) != 16) {
-                return static_cast<uint32_t>(intc_mask);
+                return static_cast<uint32_t>(bus->ee_intc.read(address));
             }
             break;
         }
@@ -96,7 +192,7 @@ T io_read(std::uint32_t address) {
         case 0x1000F1C0:
         {
             if constexpr (sizeof(T) != 16) {
-                return static_cast<uint32_t>(SIO::read(address));
+                return static_cast<uint32_t>(bus->sio.read(address));
             }
             break;
         }
@@ -143,6 +239,45 @@ T io_read(std::uint32_t address) {
         case 0x1000F460:
             return static_cast<T>(0x0);
 
+        case 0x1000F510 ... 0x1000F590:
+        {
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->dmac.read_register(address));
+            }
+            break;
+        }
+
+        case 0x12000000 ... 0x12001080:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->gs.read(address));
+            }
+            break;
+
+        // Has to return 0 else starts a write loop from 0x1C000015 onwards?
+        case 0x1C0003C0:
+        {
+            if constexpr (sizeof(T) == 4) {
+                return static_cast<uint32_t>(0x0);
+            }
+            break;
+        }
+
+        case 0x1F80141C:
+        {
+            if constexpr (sizeof(T) == 4) {
+                return static_cast<uint32_t>(dev9_delay3);
+            }
+            break;
+        }
+
+        case 0x1F803800:
+        {
+            if constexpr (sizeof(T) == 2) {
+                return static_cast<uint16_t>(0);
+            }
+            break;
+        }
+
         default:
             std::string type_str = (sizeof(T) == 1 ? "8-bit read"  :
                                     sizeof(T) == 2 ? "16-bit read" :
@@ -155,12 +290,72 @@ T io_read(std::uint32_t address) {
 }
 
 template <typename T>
-void io_write(std::uint32_t address, T value) {
+void io_write(Bus *bus, std::uint32_t address, T value) {
     switch (address) {
+        case 0x10000000 ... 0x10001830:
+        if constexpr (sizeof(T) != 16) {
+            bus->timers.write(address, value);
+        }
+        break;
+
+        case 0x10002000 ... 0x10002030:
+        if constexpr (sizeof(T) != 16) {
+            bus->ipu.write(address, value);
+        }
+        break;
+
+        case 0x10003000 ... 0x100030A0:
+            if constexpr (sizeof(T) != 16) {
+                bus->gif.write(address, value);
+            }
+            break;
+
+        case 0x10003800 ... 0x10005FFF:
+            if constexpr (sizeof(T) != 16) {
+                bus->vif.write(address, value);
+            }
+            break;   
+
+        case 0x10006000 ... 0x1000600C:
+            if constexpr (sizeof(T) != 16) {
+                bus->gif.write(address, value);
+            }
+            break;
+
+        case 0x10007000 ... 0x10007020:
+            if constexpr (sizeof(T) != 16) {
+                bus->ipu.write(address, value);
+            }
+            break;
+        
+        case 0x10008000 ... 0x1000D4FF:
+        {
+            if constexpr (sizeof(T) != 16) {
+                bus->dmac.write_register(address, value);
+            }
+            break;
+        }
+
+        case 0x1000E000 ... 0x1000E050:
+        {
+            if constexpr (sizeof(T) != 16) {
+                bus->dmac.write_register(address, value);
+            }
+            break;
+        }
+
+        case 0x1000F000:
+        {
+            if constexpr (sizeof(T) == 4) {
+                bus->ee_intc.write(address, value);
+            }
+            break;
+        }
+
         case 0x1000F010:
         {
             if constexpr (sizeof(T) == 4) {
-                intc_mask = value;;
+                bus->ee_intc.write(address, value);
             }
             break;
         }
@@ -175,7 +370,7 @@ void io_write(std::uint32_t address, T value) {
         case 0x1000F1C0:
         {
             if constexpr (sizeof(T) != 16) {
-                SIO::write(address, static_cast<uint32_t>(value));
+                bus->sio.write(address, static_cast<uint32_t>(value));
             }
             break;
         }
@@ -210,10 +405,74 @@ void io_write(std::uint32_t address, T value) {
             break;
 
         case 0x1000F500:
+            break;
+
+        case 0x1000F510 ... 0x1000F590:
+        {
+            if constexpr (sizeof(T) != 16) {
+                bus->dmac.write_register(address, value);
+            }
+            break;
+        }
+
+        // VU1 Data Memory
+        case 0x1100C000 ... 0x1100FFFF: {
+            break;
+        }
+
+        // VU0 Code Memory
+        case 0x11000000 ... 0x11000FFF: {
+            break;
+        }
+
+        // VU0 Data Memory
+        case 0x11004000 ... 0x11004FFF: {
+            break;
+        }
+
+        // VU1 Code Memory
+        case 0x11008000 ... 0x1100BFFF: {
+            break;
+        }
+
+        case 0x12000000 ... 0x12001080:
+            if constexpr (sizeof(T) != 16) {
+                bus->gs.write(address, value);
+            }
+            break;
+
+        // ?
+        case 0x1A000008:
+        {
+            if constexpr (sizeof(T) == 2) {
+                return;
+            }
+            break;
+        }
+
         case 0x1F801010:
             // NOP, unknown register
             break;
+
+        case 0x1F80141C:
+        {
+            if constexpr (sizeof(T) == 4) {
+                dev9_delay3 = static_cast<uint32_t>(value);
+            }
+            break;
+        }
+
+        case 0x1F801470:
+        case 0x1F801472:
+            if constexpr (sizeof(T) == 2) {
+                break;
+            } else {
+                goto error;
+            }
+            break;
+
         default:
+error:
             std::string type_str = (sizeof(T) == 1 ? "8-bit write"  :
                                     sizeof(T) == 2 ? "16-bit write" :
                                     sizeof(T) == 4 ? "32-bit write" :
@@ -243,7 +502,7 @@ std::uint8_t Bus::fmem_read8(std::uint32_t address)
     }
     else
     {
-        result = io_read<uint8_t>(address); // If it's not in the fast page, do an IO read
+        result = io_read<uint8_t>(this, address); // If it's not in the fast page, do an IO read
     }
 
     return result;
@@ -267,7 +526,7 @@ std::uint16_t Bus::fmem_read16(std::uint32_t address)
     }
     else
     {
-        result = io_read<uint16_t>(address);
+        result = io_read<uint16_t>(this, address);
     }
 
     return result;
@@ -296,7 +555,7 @@ std::uint32_t Bus::fmem_read32(std::uint32_t address)
     }
     else
     {
-        result = io_read<uint32_t>(address);
+        result = io_read<uint32_t>(this, address);
     }
 
     return result;
@@ -320,7 +579,7 @@ std::uint64_t Bus::fmem_read64(std::uint32_t address)
     }
     else
     {
-        result = io_read<uint64_t>(address);
+        result = io_read<uint64_t>(this, address);
     }
 
     return result;
@@ -348,7 +607,7 @@ uint128_t Bus::fmem_read128(uint32_t address) {
     } else if (address >= 0xBF000000 && address < 0xBFC00000) {
         result.u128 = 0;
     } else {
-        result = io_read<uint128_t>(address);
+        result = io_read<uint128_t>(this, address);
     }
     return result;
 }
@@ -371,7 +630,7 @@ void Bus::fmem_write8(std::uint32_t address, std::uint8_t value)
     }
     else
     {
-        io_write<uint8_t>(address, value);
+        io_write<uint8_t>(this, address, value);
     }
 }
 
@@ -393,7 +652,7 @@ void Bus::fmem_write16(std::uint32_t address, std::uint16_t value)
     }
     else
     {
-        io_write<uint16_t>(address, value);
+        io_write<uint16_t>(this, address, value);
     }
 }
 
@@ -415,7 +674,7 @@ void Bus::fmem_write32(std::uint32_t address, std::uint32_t value)
     }
     else
     {
-        io_write<uint32_t>(address, value);
+        io_write<uint32_t>(this, address, value);
     }
 }
 
@@ -437,7 +696,7 @@ void Bus::fmem_write64(std::uint32_t address, std::uint64_t value)
     }
     else
     {
-        io_write<uint64_t>(address, value);
+        io_write<uint64_t>(this, address, value);
     }
 }
 
@@ -464,7 +723,7 @@ void Bus::fmem_write128(uint32_t address, uint128_t value) {
         // Special case: Address is in the reserved range, no action needed
         // Since it's read-only, we don't write anything here.
     } else {
-        io_write<uint128_t>(address, value);
+        io_write<uint128_t>(this, address, value);
     }
 }
 
