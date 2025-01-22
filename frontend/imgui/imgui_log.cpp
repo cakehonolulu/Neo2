@@ -99,60 +99,98 @@ void ImGuiLogBackend::render()
 {
     std::lock_guard<std::mutex> lock(log_mutex);
 
+    static bool selectable_view = false;
+
     ImGui::Begin("Logger");
 
-    for (const auto &entry : log_entries) {
-        if (entry.special) {
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    if (selectable_view) {
+        std::string combined_log;
+        for (const auto &entry : log_entries) {
+            combined_log += entry.message + "\n";
         }
+        ImGui::InputTextMultiline("##log_entries", &combined_log[0], combined_log.size() + 1, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_ReadOnly);
+    } else {
+        for (const auto &entry : log_entries) {
+            if (entry.special) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            }
 
-        if (entry.bg_color.w > 0) {
-            ImVec2 text_size = ImGui::CalcTextSize(entry.message.c_str());
-            ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+            if (entry.bg_color.w > 0) {
+                ImVec2 text_size = ImGui::CalcTextSize(entry.message.c_str());
+                ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
-            ImGui::GetWindowDrawList()->AddRectFilled(
-                cursor_pos,
-                ImVec2(cursor_pos.x + text_size.x, cursor_pos.y + text_size.y),
-                ImGui::ColorConvertFloat4ToU32(entry.bg_color)
-            );
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cursor_pos,
+                    ImVec2(cursor_pos.x + text_size.x, cursor_pos.y + text_size.y),
+                    ImGui::ColorConvertFloat4ToU32(entry.bg_color)
+                );
+            }
+
+            ImGui::PushStyleColor(ImGuiCol_Text, entry.fg_color);
+            ImGui::TextUnformatted(entry.message.c_str());
+            ImGui::PopStyleColor();
+
+            if (entry.special) {
+                ImGui::PopStyleVar();
+            }
         }
+    }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, entry.fg_color);
-        ImGui::TextUnformatted(entry.message.c_str());
-        ImGui::PopStyleColor();
+    ImVec2 window_size = ImGui::GetWindowSize();
+    ImVec2 button_size = ImGui::CalcTextSize(selectable_view ? "Rich text" : "Selectable logs");
+    button_size.x += ImGui::GetStyle().FramePadding.x * 2.0f;
+    button_size.y += ImGui::GetStyle().FramePadding.y * 2.0f;
 
-        if (entry.special) {
-            ImGui::PopStyleVar();
-        }
+    ImGui::SetCursorPos(ImVec2(window_size.x - button_size.x - ImGui::GetStyle().ItemSpacing.x, window_size.y - button_size.y - ImGui::GetStyle().ItemSpacing.y - ImGui::GetStyle().WindowPadding.y));
+    if (ImGui::Button(selectable_view ? "Rich text" : "Selectable logs", button_size)) {
+        selectable_view = !selectable_view;
     }
 
     ImGui::End();
 
     ImGui::Begin("EE Logs");
 
-    for (const auto &entry : ee_log_entries) {
-        if (entry.special) {
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    if (selectable_view) {
+        std::string combined_ee_log;
+        for (const auto &entry : ee_log_entries) {
+            combined_ee_log += entry.message + "\n";
         }
+        ImGui::InputTextMultiline("##ee_log_entries", &combined_ee_log[0], combined_ee_log.size() + 1, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_ReadOnly);
+    } else {
+        for (const auto &entry : ee_log_entries) {
+            if (entry.special) {
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            }
 
-        if (entry.bg_color.w > 0) {
-            ImVec2 text_size = ImGui::CalcTextSize(entry.message.c_str());
-            ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+            if (entry.bg_color.w > 0) {
+                ImVec2 text_size = ImGui::CalcTextSize(entry.message.c_str());
+                ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
-            ImGui::GetWindowDrawList()->AddRectFilled(
-                cursor_pos,
-                ImVec2(cursor_pos.x + text_size.x, cursor_pos.y + text_size.y),
-                ImGui::ColorConvertFloat4ToU32(entry.bg_color)
-            );
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    cursor_pos,
+                    ImVec2(cursor_pos.x + text_size.x, cursor_pos.y + text_size.y),
+                    ImGui::ColorConvertFloat4ToU32(entry.bg_color)
+                );
+            }
+
+            ImGui::PushStyleColor(ImGuiCol_Text, entry.fg_color);
+            ImGui::TextUnformatted(entry.message.c_str());
+            ImGui::PopStyleColor();
+
+            if (entry.special) {
+                ImGui::PopStyleVar();
+            }
         }
+    }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, entry.fg_color);
-        ImGui::TextUnformatted(entry.message.c_str());
-        ImGui::PopStyleColor();
+    window_size = ImGui::GetWindowSize();
+    button_size = ImGui::CalcTextSize(selectable_view ? "Rich text" : "Selectable logs");
+    button_size.x += ImGui::GetStyle().FramePadding.x * 2.0f;
+    button_size.y += ImGui::GetStyle().FramePadding.y * 2.0f;
 
-        if (entry.special) {
-            ImGui::PopStyleVar();
-        }
+    ImGui::SetCursorPos(ImVec2(window_size.x - button_size.x - ImGui::GetStyle().ItemSpacing.x, window_size.y - button_size.y - ImGui::GetStyle().ItemSpacing.y - ImGui::GetStyle().WindowPadding.y));
+    if (ImGui::Button(selectable_view ? "Rich text" : "Selectable logs", button_size)) {
+        selectable_view = !selectable_view;
     }
 
     ImGui::End();

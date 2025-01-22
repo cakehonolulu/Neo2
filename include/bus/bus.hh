@@ -1,5 +1,13 @@
 #pragma once
 
+#include <ipu/ipu.hh>
+#include <ee/vif/vif.hh>
+#include <ee/dmac/dmac.hh>
+#include <ee/timer/timer.hh>
+#include <gif/gif.hh>
+#include <gs/gs.hh>
+#include <ee/intc/intc.hh>
+#include <ee/sio/sio.hh>
 #include <bus/tlb.hh>
 #include <reg.hh>
 #include <cstdint>
@@ -28,6 +36,16 @@ class Bus
     TLB tlb;
     uintptr_t *address_space_r;
     uintptr_t *address_space_w;
+
+    SIO sio;
+
+    EE_INTC ee_intc;
+    GIF gif;
+    GS gs;
+    EE_Timer timers;
+    EE_DMAC dmac;
+    VIF vif;
+    IPU ipu;
 
     std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB &tlb);
 

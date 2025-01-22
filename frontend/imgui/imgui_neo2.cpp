@@ -168,7 +168,10 @@ void ImGui_Neo2::run(int argc, char **argv)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;  // Enable DPI scaling for viewports
+    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;     // Enable DPI scaling for fonts
     io.FontGlobalScale = 1.25f;
+
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
