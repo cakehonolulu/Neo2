@@ -49,6 +49,17 @@ enum class RunType {
         llvm::Value* new_pc; \
         llvm::Value* updated_branching = builder->getInt1(false); \
         llvm::Value* updated_pc = builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(4)); \
+        if (single_instruction_mode) \
+        { \
+            llvm::Value* likely_ptr = builder->CreateIntToPtr( \
+                builder->getInt64(reinterpret_cast<uint64_t>(&(core->likely_branch))), \
+                llvm::PointerType::getUnqual(builder->getInt1Ty()) \
+            ); \
+            llvm::Value* likely = builder->CreateLoad(builder->getInt1Ty(), likely_ptr); \
+            llvm::Value* likely_branch_cond = builder->CreateICmpEQ(likely, builder->getTrue()); \
+            branch_dest = builder->CreateSelect(likely_branch_cond, builder->CreateAdd(branch_dest, builder->getInt32(4)), branch_dest); \
+            builder->CreateStore(builder->getFalse(), likely_ptr); \
+        } \
         new_pc = builder->CreateSelect( \
             branching, \
             branch_dest, \
@@ -65,10 +76,11 @@ public:
     EEJIT(EE* core);
     ~EEJIT();
     std::unordered_map<uint32_t, CompiledBlock> block_cache;
-    void execute_opcode_step();
-    void execute_opcode_run(Breakpoint *breakpoints);
     void step();
     void run(Breakpoint *breakpoints);
+
+    void execute_opcode(Breakpoint *breakpoints);
+    CompiledBlock* compile_block(uint32_t start_pc, Breakpoint *breakpoints);
 
     RunType exec_type = RunType::Run;
 
@@ -82,8 +94,6 @@ private:
     uint64_t execution_count = 0;
     bool single_instruction_mode = false;
 
-    CompiledBlock* compile_block_step(uint32_t pc, bool single_instruction);
-    CompiledBlock* compile_block_run(uint32_t pc, bool single_instruction, Breakpoint *breakpoints);
     void link_blocks();
     void evict_oldest_block();
     CompiledBlock* find_block(uint32_t pc);

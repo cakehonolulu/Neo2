@@ -520,28 +520,30 @@ void EEJIT::step() {
     }
     exec_type = RunType::Step;
     single_instruction_mode = true;
-    execute_opcode_step();
+    execute_opcode(nullptr);
     core->registers[0].u128 = 0;
     single_instruction_mode = false;
 }
 
 void EEJIT::run(Breakpoint *breakpoints) {
-    if (exec_type != RunType::Run)
+    if (exec_type != RunType::Step)
     {
         block_cache.clear();
     }
-    exec_type = RunType::Run;
-    execute_opcode_run(breakpoints);
+    
+    exec_type = RunType::Step;
+    single_instruction_mode = false;
+    execute_opcode(breakpoints);
     core->registers[0].u128 = 0;
 }
 
-void EEJIT::execute_opcode_run(Breakpoint *breakpoints) {
+void EEJIT::execute_opcode(Breakpoint *breakpoints) {
     // Try to find existing block
     CompiledBlock* block = find_block(core->pc);
-    
+
     if (!block) {
-        // Compile new block if not found
-        block = compile_block_run(core->pc, single_instruction_mode, breakpoints);
+        // Compile a new block if not found
+        block = compile_block(core->pc, breakpoints);
         if (!block) {
             return;
         }
@@ -552,7 +554,7 @@ void EEJIT::execute_opcode_run(Breakpoint *breakpoints) {
         }
         block_cache[core->pc] = *block;
     }
-    
+
     // Execute block
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
@@ -560,15 +562,15 @@ void EEJIT::execute_opcode_run(Breakpoint *breakpoints) {
     exec_fn();
 }
 
-CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instruction, Breakpoint *breakpoints) {
+CompiledBlock* EEJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints) {
     uint32_t current_pc = start_pc;
     uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
     bool is_branch = false;
-    
-    // Create new module for this block
+
+    // Create a new module for this block
     auto new_module = std::make_unique<llvm::Module>(
         "block_" + std::to_string(start_pc), *context);
-    
+
     if (!new_module) {
         Logger::error("Failed to create LLVM module");
         return nullptr;
@@ -576,10 +578,12 @@ CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instructi
 
     // Create function and basic block
     llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
-    llvm::Function *func = llvm::Function::Create(funcType, 
-                                                llvm::Function::ExternalLinkage,
-                                                "exec_" + std::to_string(start_pc),
-                                                new_module.get());
+    llvm::Function *func = llvm::Function::Create(
+        funcType,
+        llvm::Function::ExternalLinkage,
+        "exec_" + std::to_string(start_pc),
+        new_module.get()
+    );
 
     llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
     builder->SetInsertPoint(entry);
@@ -588,22 +592,31 @@ CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instructi
     uint64_t block_cycles_ = 0;
 
     while (!Neo2::is_aborted()) {
-        if (breakpoints->has_breakpoint(current_pc, CoreType::EE))
-        {
+        if (breakpoints && breakpoints->has_breakpoint(current_pc, CoreType::EE)) {
             // Notify the main thread
             Neo2::pause_emulation();
 
             // Set breakpoint information in the debug interface
             breakpoints->notify_breakpoint(current_pc);
 
-            goto likely_detection;
+            goto compile_exit;
         }
 
         if (core->branching) {
+            if (!core->likely_branch && single_instruction_mode) goto cont;
 
-            core->branching = false; // Reset branching state
+            if (single_instruction_mode)
+            {
+                current_pc = core->pc;
+
+                if (core->branching && core->likely_branch)
+                {
+                    goto cont;
+                }
+            }
+            
+            if (!single_instruction_mode) core->branching = false; // Reset branching state
             uint32_t delay_slot_pc = current_pc;
-
             // Process the branch delay slot instruction
             uint32_t opcode = core->fetch_opcode(delay_slot_pc);
             auto [branch, _, error] = generate_ir_for_opcode(opcode, delay_slot_pc);
@@ -613,9 +626,10 @@ CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instructi
                 return nullptr;
             }
 
-            current_pc = core->branch_dest + 4; // Set the PC to the branch destination
+            current_pc = core->branch_dest + 4; // Set PC to the branch destination
         }
 
+cont:
         uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
 
         // Generate IR for the opcode
@@ -629,36 +643,39 @@ CompiledBlock* EEJIT::compile_block_run(uint32_t start_pc, bool single_instructi
             return nullptr;
         }
 
-        // Check if opcode is a branch or jump
-        if (is_branch) {
+        // Check if the opcode is a branch or jump
+        if (is_branch || single_instruction_mode) {
             uint32_t func = (opcode >> 26) & 0x3F;
 
-            if (func == 0x14 || func == 0x15)
+            if ((func == 0x14 || func == 0x15))
             {
-                goto likely_detection;
+                core->likely_branch = true;
+                goto compile_exit;
             }
 
-            current_pc += 4;
-            opcode = core->fetch_opcode(current_pc);
+            if (!single_instruction_mode)
+            {
+                current_pc += 4;
+                opcode = core->fetch_opcode(current_pc);
 
-            auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+                auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
 
-            if (error) {
-                Logger::error("Error generating IR for branch-delay opcode");
-                Neo2::exit(1, Neo2::Subsystem::EE);
-                return nullptr;
+                if (error) {
+                    Logger::error("Error generating IR for branch-delay opcode");
+                    Neo2::exit(1, Neo2::Subsystem::EE);
+                    return nullptr;
+                }
             }
             
             end_pc = current_pc_;
             break;
         }
 
-        current_pc = current_pc_;  // Update the PC to the next instruction address
-
+        current_pc = current_pc_;  // Update PC to the next instruction address
         current_pc += 4;
     }
 
-likely_detection:
+compile_exit:
     block_cycles_ = core->cycles - old_cycles;
 
     builder->CreateRetVoid();  // Return from the function
@@ -677,121 +694,7 @@ likely_detection:
 
     executionEngine->addModule(std::move(new_module));
     executionEngine->finalizeObject();
-    
-    auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
-    if (!exec_fn) {
-        Logger::error("Failed to JIT compile function");
-        return nullptr;
-    }
 
-    // Create and return the compiled block
-    auto block = new CompiledBlock();
-    block->start_pc = start_pc;
-    block->end_pc = end_pc;
-    block->code_ptr = (void*)exec_fn;
-    block->last_used = execution_count;
-    block->contains_branch = is_branch;
-    block->llvm_ir = str;
-    block->cycles = block_cycles_;
-
-    return block;
-}
-
-void EEJIT::execute_opcode_step() {
-    // Try to find existing block
-    CompiledBlock* block = find_block(core->pc);
-    
-    if (!block) {
-        // Compile new block if not found
-        block = compile_block_step(core->pc, single_instruction_mode);
-        if (!block) {
-            return;
-        }
-        
-        // Add to cache
-        if (block_cache.size() >= CACHE_SIZE) {
-            evict_oldest_block();
-        }
-        block_cache[core->pc] = *block;
-    }
-    
-    // Execute block
-    block->last_used = ++execution_count;
-    auto exec_fn = (int (*)())block->code_ptr;
-    core->cycles += block->cycles;
-    exec_fn();
-}
-
-CompiledBlock* EEJIT::compile_block_step(uint32_t start_pc, bool single_instruction) {
-    uint32_t current_pc = start_pc;
-    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
-    bool is_branch = false;
-    uint32_t block_cycles = 0;
-    
-    // Create new module for this block
-    auto new_module = std::make_unique<llvm::Module>(
-        "block_" + std::to_string(start_pc), *context);
-    
-    if (!new_module) {
-        Logger::error("Failed to create LLVM module");
-        return nullptr;
-    }
-        
-    // Create function and basic block
-    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
-    llvm::Function *func = llvm::Function::Create(funcType, 
-                                                llvm::Function::ExternalLinkage,
-                                                "exec_" + std::to_string(start_pc),
-                                                new_module.get());
-
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
-    builder->SetInsertPoint(entry);
-
-    uint64_t old_cycles = core->cycles;
-    uint64_t block_cycles_ = 0;
-
-    while (true) {
-        uint32_t opcode = core->fetch_opcode(); // Fetch the next opcode
-        
-        // Generate IR for the opcode
-        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
-
-        is_branch = branch;
-
-        if (error) {
-            Logger::error("Error generating IR for opcode");
-            Neo2::exit(1, Neo2::Subsystem::EE);
-            return nullptr;
-        }
-
-        // Check if opcode is a branch or jump
-        if (is_branch || single_instruction) {
-            end_pc = current_pc_;
-            break;
-        }
-
-        current_pc = current_pc_;  // Update the PC to the next instruction address
-    }
-
-    block_cycles_ = core->cycles - old_cycles;
-
-    builder->CreateRetVoid();  // Return from the function
-
-    // Prepare the module's LLVM IR
-    std::string str;
-    llvm::raw_string_ostream os(str);
-    new_module->print(os, nullptr);
-    os.flush();
-
-    // Add the module to the execution engine
-    if (!executionEngine) {
-        Logger::error("Execution engine is not initialized");
-        return nullptr;
-    }
-
-    executionEngine->addModule(std::move(new_module));
-    executionEngine->finalizeObject();
-    
     auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
     if (!exec_fn) {
         Logger::error("Failed to JIT compile function");
@@ -1567,6 +1470,13 @@ void EEJIT::ee_jit_beql(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
     builder->CreateStore(branch_dest, branch_dest_ptr);
+
+    llvm::Value* likely_ptr = builder->CreateIntToPtr( \
+                    builder->getInt64(reinterpret_cast<uint64_t>(&(core->likely_branch))),
+                    llvm::PointerType::getUnqual(builder->getInt1Ty())
+                );
+                llvm::Value* likely = builder->CreateLoad(builder->getInt1Ty(), likely_ptr);
+    builder->CreateStore(builder->getTrue(), likely_ptr);
 }
 
 void EEJIT::ee_jit_mflo(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
@@ -1700,6 +1610,12 @@ void EEJIT::ee_jit_bnel(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
         llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
     builder->CreateStore(branch_dest, branch_dest_ptr);
+
+    llvm::Value* likely_ptr = builder->CreateIntToPtr( \
+                    builder->getInt64(reinterpret_cast<uint64_t>(&(core->likely_branch))),
+                    llvm::PointerType::getUnqual(builder->getInt1Ty())
+                );
+    builder->CreateStore(builder->getTrue(), likely_ptr);
 }
 
 void EEJIT::ee_jit_lb(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
