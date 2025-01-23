@@ -52,6 +52,7 @@ class EE : public CPU
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
     bool branching = false;
+    bool likely_branch = false;
     std::uint32_t branch_dest;
     
   private:
