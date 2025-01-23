@@ -443,7 +443,7 @@ void IOPJIT::iop_jit_addiu(std::uint32_t opcode, uint32_t& current_pc, bool& is_
     llvm::Value* result = builder->CreateAdd(rs_value, imm_value);
     llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result, rt_ptr);
-    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
 
