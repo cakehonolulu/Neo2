@@ -10,3 +10,4 @@ compile_commands.json
 cmake-build-debug
 imgui.ini
 build/*
+.vscode/
