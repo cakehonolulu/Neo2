@@ -141,11 +141,10 @@ private:
 
     struct OpcodeHandlerEntry {
         std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> funct3_map;
-        std::unordered_map<std::uint8_t, std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>>> subfunc_map; // Nested map for subfunctions
+        std::unordered_map<std::uint8_t, std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>>> subfunc_map;
         std::unordered_map<std::uint8_t, std::pair<OpcodeHandler, uint32_t>> rs_map;
         std::pair<OpcodeHandler, uint32_t> single_handler = {nullptr, 0};
     };
-
 
     std::unordered_map<std::uint8_t, OpcodeHandlerEntry> opcode_table;
 
@@ -229,6 +228,7 @@ private:
     void ee_jit_sdr(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_srlv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_dsrl32(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_padduw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 
     void ee_jit_cop1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_cop2(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);

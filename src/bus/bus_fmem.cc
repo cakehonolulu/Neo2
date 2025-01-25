@@ -23,6 +23,14 @@ std::uint32_t rdram_sdevid = 0;
 
 std::uint32_t dev9_delay3 = 0;
 
+// SBUS
+std::uint32_t sbus_reg40 = 0;
+std::uint32_t sbus_reg60 = 0;
+std::uint32_t sbus_msflag = 0;
+std::uint32_t sbus_maddr = 0;
+std::uint32_t sbus_saddr = 0;
+std::uint32_t sbus_smflag = 0;
+
 void Bus::fmem_init() {
     tlb = TLB(42);
 
@@ -201,6 +209,22 @@ T io_read(Bus *bus, std::uint32_t address) {
         case 0x1F801010:
             return static_cast<T>(0x0);
 
+        case 0x1000F200:
+            return static_cast<T>(sbus_maddr);
+            break;
+
+        case 0x1000F210:
+            return static_cast<T>(sbus_saddr);
+            break;
+
+        case 0x1000F220:
+            return static_cast<T>(sbus_msflag);
+            break;
+
+        case 0x1000F230:
+            return static_cast<T>(0x1a12301);
+            break;
+
         case 0x1000F400:
         case 0x1000F410:
         case 0x1000F420:
@@ -374,9 +398,38 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
         }
+
         case 0x1000F400:
         case 0x1000F410:
         case 0x1000F420:
+            break;
+
+        case 0x1000F200:
+            if constexpr (sizeof(T) == 4) {
+                sbus_maddr = value;
+            }
+            break;
+
+        case 0x1000F210:
+            if constexpr (sizeof(T) == 4) {
+                sbus_saddr = value;
+            }
+            break;
+
+        case 0x1000F220:
+            if constexpr (sizeof(T) == 4) {
+                sbus_msflag = value;
+            }
+            break;
+
+        case 0x1000F230:
+            if constexpr (sizeof(T) == 4) {
+                sbus_smflag = value;
+            }
+            break;
+
+        case 0x1000F240:
+        case 0x1000F260:
             break;
 
         case 0x1000F430:
@@ -449,6 +502,9 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
         }
+
+        case 0x1C0003E0:
+            break;
 
         case 0x1F801010:
             // NOP, unknown register

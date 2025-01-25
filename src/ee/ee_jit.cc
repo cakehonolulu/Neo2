@@ -318,7 +318,8 @@ void EEJIT::initialize_opcode_table() {
 
     opcode_table[0x10].rs_map[0x00] = {&EEJIT::ee_jit_mfc0, CopDefault}; // MFC0 opcode
     opcode_table[0x10].rs_map[0x04] = {&EEJIT::ee_jit_mtc0, CopDefault}; // MTC0 opcode
-    opcode_table[0x10].rs_map[0x10] = {&EEJIT::ee_jit_tlbwi, CopDefault}; // TLBWI opcode
+    
+    opcode_table[0x10].subfunc_map[0x10][0x02] = {&EEJIT::ee_jit_tlbwi, CopDefault};  // TLBWI
 
     opcode_table[0x11].rs_map[0x02] = {&EEJIT::ee_jit_cop1, CopDefault}; // COP1 opcode
 
@@ -340,6 +341,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x1C].funct3_map[0x12] = {&EEJIT::ee_jit_mflo1, Default}; // MFLO1 opcode
     opcode_table[0x1C].funct3_map[0x18] = {&EEJIT::ee_jit_mult1, MMI_Mult}; // MULT1 opcode
     opcode_table[0x1C].funct3_map[0x1B] = {&EEJIT::ee_jit_divu1, MMI_Div}; // DIVU1 opcode
+    opcode_table[0x1C].subfunc_map[0x28][0x10] = {&EEJIT::ee_jit_padduw, Default}; // PADDUW opcode
     opcode_table[0x1C].subfunc_map[0x29][0x12] = {&EEJIT::ee_jit_or, Default}; // POR opcode
 
     opcode_table[0x1E].single_handler = {&EEJIT::ee_jit_lq, Load};  // LQ opcode
@@ -453,18 +455,31 @@ std::tuple<bool, uint32_t, bool> EEJIT::generate_ir_for_opcode(uint32_t opcode, 
             }
         } else if (opcode_index == 0x10 || opcode_index == 0x11 || opcode_index == 0x12) {  // Special case for MIPS coprocessor instructions (like MFC0, MTC0, etc.)
             if (opcode_index == 0x11) {
-                    //Logger::info("COP1 opcode");
-                    handler = &EEJIT::ee_jit_cop2;
-                    core->cycles += 7;
+                //Logger::info("COP1 opcode");
+                handler = &EEJIT::ee_jit_cop2;
+                core->cycles += 7;
             } else if (opcode_index == 0x12) {
-                    //Logger::info("COP2 opcode");
-                    handler = &EEJIT::ee_jit_cop2;
-                    core->cycles += 7;
-            } else {
-                auto rs_it = it->second.rs_map.find(funct_or_rs);
-                if (rs_it != it->second.rs_map.end()) {
+                //Logger::info("COP2 opcode");
+                handler = &EEJIT::ee_jit_cop2;
+                core->cycles += 7;
+            } else {  // COP0 instructions
+                // Check if RS maps to a primary COP0 instruction (e.g., MFC0, MTC0)
+                auto rs_it = opcode_table[0x10].rs_map.find(funct_or_rs);
+                if (rs_it != opcode_table[0x10].rs_map.end()) {
                     handler = rs_it->second.first;
                     core->cycles += rs_it->second.second;
+                } else {
+                    // Handle COP0 sub-opcodes (e.g., TLBWI)
+                    uint8_t cp0_func = (opcode >> 25) & 0x1F;
+
+                    uint8_t funct = opcode & 0x3F;  // Extract the sub-opcode (function code)
+                    auto subfunc_it = opcode_table[0x10].subfunc_map[0x10].find(funct);
+                    if (subfunc_it != opcode_table[0x10].subfunc_map[0x10].end()) {
+                        handler = subfunc_it->second.first;
+                        core->cycles += subfunc_it->second.second;
+                    } else {
+                        base_error_handler(opcode, current_pc);  // Unknown COP0 sub-opcode
+                    }
                 }
             }
         } else if (opcode_index == 0x1C) {  // Special case for MMI instructions
@@ -2293,40 +2308,41 @@ void EEJIT::ee_jit_slt(std::uint32_t opcode, uint32_t& current_pc, bool& is_bran
 }
 
 void EEJIT::ee_jit_and(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    uint8_t rs = (opcode >> 21) & 0x1F;  // Extract RS (bits 21-25)
-    uint8_t rt = (opcode >> 16) & 0x1F;  // Extract RT (bits 16-20)
-    uint8_t rd = (opcode >> 11) & 0x1F;  // Extract RD (bits 11-15)
+    // Decode opcode fields
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Source register (rs)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Source register (rt)
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Destination register (rd)
 
+    // Get the base pointer to the GPR registers
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt64Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty()) // GPR base pointer
     );
 
-    // Load the value from register GPR[rs]
+    // Load the 64-bit value from GPR[rs]
     llvm::Value* rs_value = builder->CreateLoad(
         builder->getInt64Ty(),
-        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 2))  // 64-bit values, so each register is 8 bytes
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rs * 2)) // Offset for 64-bit values
     );
 
-    // Load the value from register GPR[rt]
+    // Load the 64-bit value from GPR[rt]
     llvm::Value* rt_value = builder->CreateLoad(
         builder->getInt64Ty(),
-        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2))
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rt * 2)) // Offset for 64-bit values
     );
 
-    // Perform bitwise AND: GPR[rs] AND GPR[rt]
+    // Perform the bitwise AND operation: GPR[rs] AND GPR[rt]
     llvm::Value* result = builder->CreateAnd(rs_value, rt_value);
 
     // Store the result into GPR[rd]
     builder->CreateStore(
         result,
-        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2))
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rd * 2)) // Offset for 64-bit values
     );
 
     // Update the program counter after the instruction is executed
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
-
 
 void EEJIT::ee_jit_lhu(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
     uint8_t base = (opcode >> 21) & 0x1F;  // Extract BASE (bits 21-25)
@@ -3043,48 +3059,41 @@ void EEJIT::ee_jit_cache(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
 }
 
 void EEJIT::ee_jit_sllv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
-    // Extract the registers from the opcode
-    uint32_t rs = (opcode >> 21) & 0x1F;  // Bits 21-25
-    uint32_t rt = (opcode >> 16) & 0x1F;  // Bits 16-20
-    uint32_t rd = (opcode >> 11) & 0x1F;  // Bits 11-15
+    // Decode opcode fields
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Destination register (rd)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Source register (rt)
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Shift amount register (rs)
 
-    // Load the base address of the registers
+    // Get the base pointer to the GPR registers
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty()) // 32-bit signed integers
+        llvm::PointerType::getUnqual(builder->getInt8Ty()) // GPR base pointer (byte-addressable)
     );
 
-    // Load the value from the rt register
-    llvm::Value* rt_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 2)) // Access rt register
-    );
+    // Load the value from the rt register (value to shift)
+    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4) // GPR uses 32-bit words for UL[4]
+    ));
 
     // Load the value from the rs register (shift amount)
-    llvm::Value* rs_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 2)) // Access rs register
-    );
+    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4) // GPR uses 32-bit words for UL[4]
+    ));
 
-    // Extract the low-order 5 bits from GPR[rs]
-    llvm::Value* shift_amount = builder->CreateAnd(
-        rs_value,
-        llvm::ConstantInt::get(builder->getInt32Ty(), 0x1F) // Mask to lower 5 bits
-    );
+    // Extract the lower 5 bits of rs_value for the shift amount
+    llvm::Value* shift_amount = builder->CreateAnd(rs_value, builder->getInt32(0x1F));
 
-    // Perform the logical left shift (GPR[rd] = GPR[rt] << shift_amount)
-    llvm::Value* shifted_value = builder->CreateShl(rt_value, shift_amount);
+    // Perform the logical left shift operation (SLLV)
+    llvm::Value* result = builder->CreateShl(rt_value, shift_amount);
 
-    // Sign-extend the 32-bit result to 64 bits and store it in the rd register
-    llvm::Value* sign_extended_value = builder->CreateSExt(shifted_value, builder->getInt64Ty());
+    result = builder->CreateSExt(result, builder->getInt64Ty());
 
-    // Store the result in the rd register
-    builder->CreateStore(
-        sign_extended_value,
-        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2)) // rd * 2 for 64-bit offset
-    );
+    // Store the result into the rd register
+    builder->CreateStore(result, builder->CreateGEP(
+        builder->getInt64Ty(), gpr_base, builder->getInt64(rd * 2) // GPR uses 32-bit words for UL[4]
+    ));
 
-    // Update the program counter after the instruction is executed
+    // Emit the update to PC after this operation
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
 
@@ -3581,5 +3590,67 @@ void EEJIT::ee_jit_cop1(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
 
 void EEJIT::ee_jit_cop2(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
 
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_padduw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // Decode opcode fields
+    uint8_t rs = (opcode >> 21) & 0x1F;  // Source register (rs)
+    uint8_t rt = (opcode >> 16) & 0x1F;  // Source register (rt)
+    uint8_t rd = (opcode >> 11) & 0x1F;  // Destination register (rd)
+
+    // Base pointer to the GPR registers
+    llvm::Value* gpr_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
+    );
+
+    // Helper function to get a pointer to the GPR word
+    auto get_gpr_word_ptr = [&](uint8_t reg, uint8_t word_idx) -> llvm::Value* {
+        return builder->CreateGEP(
+            builder->getInt32Ty(),
+            builder->CreateBitCast(gpr_base, llvm::PointerType::get(builder->getInt32Ty(), 0)),
+            builder->getInt32(reg * 4 + word_idx)  // Each GPR is 128 bits (4 x 32-bit words)
+        );
+    };
+
+    // Helper to load a 32-bit word from GPR
+    auto load_gpr_word = [&](uint8_t reg, uint8_t word_idx) -> llvm::Value* {
+        return builder->CreateLoad(builder->getInt32Ty(), get_gpr_word_ptr(reg, word_idx));
+    };
+
+    // Helper to store a 32-bit word into a GPR
+    auto store_gpr_word = [&](uint8_t reg, uint8_t word_idx, llvm::Value* value) {
+        builder->CreateStore(value, get_gpr_word_ptr(reg, word_idx));
+    };
+
+    // Iterate over each of the four 32-bit words
+    for (uint8_t word_idx = 0; word_idx < 4; ++word_idx) {
+        // Load the values from the source registers
+        llvm::Value* rs_value = load_gpr_word(rs, word_idx);
+        llvm::Value* rt_value = load_gpr_word(rt, word_idx);
+
+        // Add the two values as 64-bit integers to handle overflow
+        llvm::Value* extended_rs = builder->CreateZExt(rs_value, builder->getInt64Ty());
+        llvm::Value* extended_rt = builder->CreateZExt(rt_value, builder->getInt64Ty());
+        llvm::Value* sum = builder->CreateAdd(extended_rs, extended_rt);
+
+        // Check for overflow (sum > 0xFFFFFFFF)
+        llvm::Value* max_uint32 = builder->getInt64(0xFFFFFFFF);
+        llvm::Value* is_overflow = builder->CreateICmpUGT(sum, max_uint32);
+
+        // Select the saturated value (0xFFFFFFFF) or the sum truncated to 32 bits
+        llvm::Value* saturated_value = builder->getInt32(0xFFFFFFFF);
+        llvm::Value* result = builder->CreateSelect(
+            is_overflow,
+            saturated_value,
+            builder->CreateTrunc(sum, builder->getInt32Ty())
+        );
+
+        // Store the result into the destination register
+        store_gpr_word(rd, word_idx, result);
+    }
+
+    // Update the program counter after the instruction is executed
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
