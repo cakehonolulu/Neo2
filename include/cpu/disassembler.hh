@@ -21,6 +21,7 @@ struct OpcodeEntry {
     std::string mnemonic;
     InstructionType type;
     bool is_jump;
+    std::unordered_map<uint8_t, OpcodeEntry> subopcodes;
 
     OpcodeEntry(const std::string& m = "UNKNOWN", InstructionType t = InstructionType::Unknown, bool j = false)
         : mnemonic(m), type(t), is_jump(j) {}

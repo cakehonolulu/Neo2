@@ -99,10 +99,15 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x3C] = OpcodeEntry("dsll32", InstructionType::RType);
     extended_opcodes[0x3F] = OpcodeEntry("dsra32", InstructionType::RType);
 
-    // COP0 opcode table
+    // COP0 Main Instructions
     cop_opcode_tables[0x10][0x00] = OpcodeEntry("mfc0", InstructionType::IType);
     cop_opcode_tables[0x10][0x04] = OpcodeEntry("mtc0", InstructionType::IType);
-    cop_opcode_tables[0x10][0x10] = OpcodeEntry("tlbwi", InstructionType::IType);
+
+    // COP0 Sub-instructions (e.g., TLB and system operations)
+    cop_opcode_tables[0x10][0x10].subopcodes[0x02] = OpcodeEntry("tlbwi", InstructionType::RType);
+    cop_opcode_tables[0x10][0x10].subopcodes[0x18] = OpcodeEntry("eret", InstructionType::RType);
+    cop_opcode_tables[0x10][0x10].subopcodes[0x38] = OpcodeEntry("ei", InstructionType::RType);
+    cop_opcode_tables[0x10][0x10].subopcodes[0x39] = OpcodeEntry("di", InstructionType::RType);
 
     branch_opcodes[0x00] = OpcodeEntry("bltz", InstructionType::IType, true);
     branch_opcodes[0x01] = OpcodeEntry("bgez", InstructionType::IType, true);
@@ -242,22 +247,36 @@ DisassemblyData Disassembler::disassemble(CPU* cpu, uint32_t pc, uint32_t opcode
         }
     }
     // Handle COP0-3 opcodes
-    else if (function >= 0x10 && function <= 0x13) {
-        uint8_t cop_function = (opcode >> 21) & 0x1F;
+    else if (function >= 0x10 && function <= 0x13) { // COP0 to COP3
+        uint8_t cop_function = (opcode >> 21) & 0x1F; // Extract primary COP function (rs field)
+        uint8_t sub_opcode = opcode & 0x3F;          // Extract sub-opcode (last 6 bits)
 
-        // Select the correct COP opcode table based on function
         if (cop_opcode_tables.contains(function)) {
             auto& cop_table = cop_opcode_tables[function];
+
             if (cop_table.contains(cop_function)) {
-                data = DisassemblyData(pc, cop_table[cop_function]);
+                auto& entry = cop_table[cop_function];
 
-                // Operand processing for COP instructions (commonly use rd and rt)
-                uint8_t rd = (opcode >> 11) & 0x1F;
-                uint8_t rt = (opcode >> 16) & 0x1F;
-                std::string rd_name = cop0_register_names[rd].empty() ? "$" + mips_register_names[rd] : cop0_register_names[rd];
+                // Handle sub-opcodes if present
+                if (entry.subopcodes.contains(sub_opcode)) {
+                    auto& sub_entry = entry.subopcodes[sub_opcode];
+                    data.mnemonic = sub_entry.mnemonic;
+                    data.type = sub_entry.type;
+                } else {
+                    data.mnemonic = entry.mnemonic;
+                    data.type = entry.type;
+                }
 
-                data.operands.push_back({rd_name, rd});
-                data.operands.push_back({"$" + mips_register_names[rt], rt});
+                // Operand decoding
+                if (cop_function == 0x00 || cop_function == 0x04) { // MFC0 or MTC0
+                    uint8_t rt = (opcode >> 16) & 0x1F;
+                    uint8_t rd = (opcode >> 11) & 0x1F;
+                    std::string rd_name = !cop0_register_names[rd].empty()
+                                                ? cop0_register_names[rd]
+                                                : "$" + mips_register_names[rd];
+                    data.operands.push_back({"$" + mips_register_names[rt], rt});
+                    data.operands.push_back({"$" + rd_name, rd});
+                }
             } else {
                 data.mnemonic = format("UNKNOWN COP{} (rs 0x{:X})", function - 0x10, cop_function);
             }
