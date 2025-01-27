@@ -75,6 +75,7 @@ void Disassembler::initialize_opcode_table() {
     extended_opcodes[0x09] = OpcodeEntry("jalr", InstructionType::JType, true);
     extended_opcodes[0x0A] = OpcodeEntry("movz", InstructionType::RType);
     extended_opcodes[0x0B] = OpcodeEntry("movn", InstructionType::RType);
+    extended_opcodes[0x0C] = OpcodeEntry("syscall", InstructionType::RType);
     extended_opcodes[0x0F] = OpcodeEntry("sync", InstructionType::Unknown);
     extended_opcodes[0x10] = OpcodeEntry("mfhi", InstructionType::RType);
     extended_opcodes[0x12] = OpcodeEntry("mflo", InstructionType::RType);
@@ -111,6 +112,7 @@ void Disassembler::initialize_opcode_table() {
 
     branch_opcodes[0x00] = OpcodeEntry("bltz", InstructionType::IType, true);
     branch_opcodes[0x01] = OpcodeEntry("bgez", InstructionType::IType, true);
+    branch_opcodes[0x02] = OpcodeEntry("bltzl", InstructionType::IType, true);
 
     mmi_opcodes[0x12] = OpcodeEntry("mflo1", InstructionType::IType);
     mmi_opcodes[0x1B] = OpcodeEntry("divu1", InstructionType::IType);

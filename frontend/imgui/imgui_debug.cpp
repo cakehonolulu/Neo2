@@ -400,7 +400,7 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 value = strtoull(new_cop0_value, nullptr, 16);
                 if (auto* ee = dynamic_cast<EE*>(cpu)) {
-                    ee->cop0_registers[reg_index] = value;
+                    ee->cop0.regs[reg_index] = value;
                 } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
                     iop->cop0_registers[reg_index] = value;
                 }
@@ -463,9 +463,9 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
         if (auto* ee = dynamic_cast<EE*>(cpu)) {
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
-                uint32_t current_value = ee->cop0_registers[i];
+                uint32_t current_value = ee->cop0.regs[i];
                 render_register_cop0(cop0_register_names[i].c_str(), current_value, i);
-                //ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), ee->cop0_registers[i]);
+                //ImGui::Text("%-8s: 0x%08X", cop0_register_names[i].c_str(), ee->cop0.regs[i]);
             }
         } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
             for (int i = 0; i < 32; ++i) {

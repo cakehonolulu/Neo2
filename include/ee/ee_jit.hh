@@ -9,6 +9,15 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <cpu/breakpoint.hh>
+#include <log/log.hh>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/ExecutionEngine/MCJIT.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Verifier.h>
+#include <unistd.h>
 
 #define Default     9
 #define Branch      11
@@ -29,6 +38,8 @@ enum class RunType {
     Step,
     Run
 };
+
+#define CAUSE_SYSCALL  (8 << 2)
 
 #define EMIT_EE_UPDATE_PC(core, builder, current_pc) \
     do { \
@@ -88,6 +99,11 @@ public:
         return std::make_shared<const std::unordered_map<uint32_t, CompiledBlock>>(block_cache);
     }
 
+    void ee_jit_set_run_elf(bool state)
+    {
+        run_elf = state;
+    }
+
 private:
     static constexpr size_t CACHE_SIZE = 1024;
     std::vector<uint32_t> lru_queue;
@@ -137,6 +153,14 @@ private:
     llvm::FunctionType* ee_write32_dbg_type;
     llvm::Function* ee_write32_dbg;
 
+    llvm::FunctionType* ee_load_elf_type;
+    llvm::Function* ee_load_elf;
+
+    llvm::FunctionType* ee_print_syscall_type;
+    llvm::Function* ee_print_syscall;
+
+    bool run_elf = false;
+
     typedef void (EEJIT::*OpcodeHandler)(std::uint32_t, uint32_t&, bool&, EE*);
 
     struct OpcodeHandlerEntry {
@@ -151,6 +175,10 @@ private:
     void base_error_handler(uint32_t opcode, uint32_t pc);
 
     void initialize_opcode_table();
+
+    void setup_ee_jit_primitives();
+
+    void ee_jit_level1_exception(EE* core, uint32_t cause, uint32_t& current_pc);
 
     void ee_jit_mfc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_mtc0(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
@@ -229,6 +257,13 @@ private:
     void ee_jit_srlv(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_dsrl32(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_padduw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_di(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_eret(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_syscall(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_bltzl(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_sub(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_add(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+    void ee_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
 
     void ee_jit_cop1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_cop2(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);

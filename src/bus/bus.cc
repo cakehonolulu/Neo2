@@ -15,10 +15,10 @@ using std::format;
 using fmt::format;
 #endif
 
-Bus::Bus(BusMode mode) : tlb(32), sio(), ee_intc(), gif(), gs(), timers(),
-vif(), ipu()
+Bus::Bus(BusMode mode) : tlb(32), sio(), ee_intc(), gif(*this), gs(), timers(),
+vif(), ipu(), dmac(*this) // Pass reference to Bus instance
 {
-	Logger::set_subsystem("BUS");
+    Logger::set_subsystem("BUS");
 
     // Scratchpad RAM (16 KB)
     scratchpad.resize(16 * 1024);

@@ -1,5 +1,8 @@
 #pragma once
+#include <reg.hh>
 #include <cstdint>
+
+class Bus; // Forward declaration of Bus class
 
 class GIF {
 public:
@@ -16,13 +19,25 @@ public:
     static constexpr uint32_t GIF_P3TAG = 0x100030A0;
     static constexpr uint32_t GIF_FIFO = 0x10006000;
 
-    GIF();
+    GIF(Bus& bus);
 
     // Methods to handle register reads and writes
     uint32_t read(uint32_t address);
     void write(uint32_t address, uint32_t value);
 
+    // Methods to handle GIF FIFO and masking
+    void write_fifo(uint128_t data, uint32_t &madr, uint32_t &chcr);
+    void mask_fifo(uint32_t mask);
+    bool is_path3_masked() const;
+
+    void process_gif_data(uint128_t data, uint32_t &madr, uint32_t &chcr);
+    void process_packed_format();
+    void process_reglist_format(uint32_t nloop, uint32_t nregs);
+    void process_image_format(uint32_t nloop);
+
 private:
+    Bus& bus; // Reference to the Bus instance
+
     uint32_t gif_ctrl;
     uint32_t gif_mode;
     uint32_t gif_stat;
@@ -30,5 +45,22 @@ private:
     uint32_t gif_cnt;
     uint32_t gif_p3cnt;
     uint32_t gif_p3tag;
-    uint32_t gif_fifo[4]; // GIF_FIFO size is 16 bytes (4 words)
+    uint64_t gif_fifo[16]; // GIF_FIFO size is 16 bytes (4 words)
+
+    uint128_t current_gif_tag;
+    uint32_t current_gif_addr = 0;
+
+    enum class State {
+        Idle,
+        ProcessingGIFTag,
+        ProcessingPacked,
+        ProcessingReglist,
+        ProcessingImage,
+        EOP
+    };
+
+    State state;
+    uint32_t nloop;
+    uint32_t current_nloop;
+    uint32_t nregs;
 };
