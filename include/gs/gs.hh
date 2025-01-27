@@ -1,4 +1,5 @@
 #pragma once
+#include <reg.hh>
 #include <cstdint>
 
 class GS {
@@ -30,6 +31,14 @@ public:
     uint64_t read(uint32_t address);
     void write(uint32_t address, uint64_t value);
 
+    void simul_vblank();
+
+    // Method to handle incoming GIF data
+    void write_gif_data(uint64_t data);
+    void write_raw_gif_data(uint8_t reg, uint64_t data);
+    void write_packed_gif_data(uint8_t reg, uint64_t data);
+
+    uint64_t gs_privileged_registers[19]; // 19 privileged registers
+    uint64_t gs_registers[55]; // 55 general registers
 private:
-    uint64_t gs_registers[19]; // 19 registers in total
 };

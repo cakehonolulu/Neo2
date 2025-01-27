@@ -10,6 +10,7 @@ target_sources(neo2
         ee/ee.cc
         ee/ee_interpreter.cc
         ee/ee_jit.cc
+        ee/ee_jit_opcodes.cc
         ee/sio/sio.cc
         ee/intc/intc.cc
         gif/gif.cc

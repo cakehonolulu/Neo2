@@ -25,6 +25,182 @@
 #include "ImGuiFileDialog.h"
 #include <argparse/argparse.hpp>
 
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#define SERVER_IP "127.0.0.1"
+#define PORT 12345
+
+int client_fd = -1;
+
+void connectToPCSX2() {
+    struct sockaddr_in server_address;
+
+    // Create the socket
+    if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(PORT);
+
+    // Convert server IP address
+    if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) <= 0) {
+        perror("Invalid server address");
+        exit(EXIT_FAILURE);
+    }
+
+    // Connect to the server
+    while (connect(client_fd, (struct sockaddr*)&server_address, sizeof(server_address)) < 0) {
+        Logger::info("Waiting for PCSX2 server...");
+        sleep(1);
+    }
+
+    Logger::info("Connected to PCSX2 server!");
+}
+
+#undef Default
+#include "json.hpp"
+using json = nlohmann::json;
+
+std::string to_hex_string(uint32_t value) {
+    std::ostringstream stream;
+    stream << std::hex << std::uppercase << value;
+    return stream.str();
+}
+
+std::string to_hex_string(uint128_t value) {
+    uint64_t high = value.u64[1];
+    uint64_t low = value.u64[0];
+    std::stringstream ss;
+    ss << std::hex << std::setw(16) << std::setfill('0') << high
+       << std::setw(16) << std::setfill('0') << low;
+    return ss.str();
+}
+
+static size_t step_counter = 0;  // Sequence number
+// Function to compare two JSON objects and highlight differences
+void compareAndPrintJsonDiff(const json& client_state, const json& server_state) {
+    for (json::const_iterator it = client_state.begin(); it != client_state.end(); ++it) {
+        // check if it.key() contains cop0_reg_ and skip
+        if (it.key().find("cop0_reg") == 0) {
+            continue;
+        }
+        // If key exists in server state
+        if (server_state.contains(it.key())) {
+            if (it.value() != server_state[it.key()]) {
+                // Color differences red
+                std::cout << "\033[31mDifference in key: " << it.key() << "\033[0m" << std::endl;
+                std::cout << "  Neo2 state: " << it.value() << std::endl;
+                std::cout << "  PCSX2 state: " << server_state[it.key()] << std::endl;
+            }
+        } else {
+            // Key not in server state, print in red
+            std::cout << "\033[31mKey missing in server state: " << it.key() << "\033[0m" << std::endl;
+        }
+    }
+
+    // Check for keys in server state that are missing in client state
+    for (json::const_iterator it = server_state.begin(); it != server_state.end(); ++it) {
+        // Skip cop0_reg* entries
+        if (it.key().find("cop0_reg") == 0) {
+            continue;
+        }
+
+        if (!client_state.contains(it.key())) {
+            // Missing key in client state, print in red
+            std::cout << "\033[31mKey missing in client state: " << it.key() << "\033[0m" << std::endl;
+        }
+    }
+}
+
+int compareRegistersWithPCSX2(EE* core) {
+    int ret = 1;
+
+    // Step 1: Send the `ready_number` to PCSX2
+    std::string ready_signal = "ready_" + std::to_string(step_counter) + "\n";
+    send(client_fd, ready_signal.c_str(), ready_signal.size(), 0);
+
+    // Step 2: Wait for the register JSON from PCSX2
+    char buffer[10240] = {0};
+    size_t total_bytes = 0;
+
+    while (true) {
+        int bytes_received = read(client_fd, buffer + total_bytes, sizeof(buffer) - total_bytes - 1);
+        if (bytes_received <= 0) {
+            std::cerr << "Error: Lost connection to PCSX2." << std::endl;
+            exit(1);
+        }
+        total_bytes += bytes_received;
+        buffer[total_bytes] = '\0';  // Ensure null-termination
+
+        if (buffer[total_bytes - 1] == '\n') break;  // End of message detected
+    }
+
+    json server_state = json::parse(buffer);
+    
+    // Get "PC" key from server_state as uint32_t
+    uint32_t server_pc = std::stoul(server_state["pc"].get<std::string>(), nullptr, 16);
+
+    // Step 3: Generate Neo2's current state
+    json neo2_state = {
+        {"pc", "0x" + to_hex_string(core->pc)},
+        {"hi", "0x" + to_hex_string(core->hi)},
+        {"lo", "0x" + to_hex_string(core->lo)}
+    };
+
+    for (int i = 0; i < 32; ++i) {
+        neo2_state["reg_" + std::to_string(i)] = "0x" + to_hex_string(core->registers[i]);
+    }
+
+    for (int i = 0; i < 32; ++i) {
+        neo2_state["cop0_reg_" + std::to_string(i)] = "0x" + to_hex_string(core->cop0.regs[i]);
+    }
+
+    // Print client state and server state differences
+    compareAndPrintJsonDiff(neo2_state, server_state);
+
+    std::cerr << "Init PC: 0x" << std::hex << core->pc << std::endl;
+    // Filter out cop0_reg_* entries from a JSON object
+    auto filter_cop0_regs = [](const json& state) -> json {
+        json filtered_state;
+        for (auto it = state.begin(); it != state.end(); ++it) {
+            if (it.key().find("cop0_reg") != 0) { // Skip keys starting with "cop0_reg"
+                filtered_state[it.key()] = it.value();
+            }
+        }
+        return filtered_state;
+    };
+
+    // Filter the states
+    json filtered_neo2_state = filter_cop0_regs(neo2_state);
+    json filtered_server_state = filter_cop0_regs(server_state);
+
+    // Compare filtered states
+    if (filtered_neo2_state != filtered_server_state) {
+        std::cerr << "Mismatch detected!" << std::endl;
+        std::cerr << "Neo2 state: " << filtered_neo2_state.dump(4) << std::endl;
+        std::cerr << "PCSX2 state: " << filtered_server_state.dump(4) << std::endl;
+
+        // Send `MISMATCH` to PCSX2
+        std::string mismatch_signal = "MISMATCH\n";
+        send(client_fd, mismatch_signal.c_str(), mismatch_signal.size(), 0);
+        exit(1);
+    }
+
+    // Step 4: Send `ACK` to PCSX2
+    std::string ack_signal = "ACK\n";
+    send(client_fd, ack_signal.c_str(), ack_signal.size(), 0);
+
+    // Increment the step counter
+    step_counter++;
+
+    ret = 0;
+    return ret;
+}
+
 bool logging_enabled = true; // Flag to track logging state
 Disassembler disassembler;
 
@@ -113,6 +289,10 @@ void ImGui_Neo2::run(int argc, char **argv)
         .help("Enable debug windows")
         .nargs(0);
 
+    program.add_argument("--elf")
+        .help("Path to ELF")
+        .nargs(1);
+
     try
     {
         program.parse_args(argc, argv);
@@ -134,6 +314,13 @@ void ImGui_Neo2::run(int argc, char **argv)
     {
         show_ee_debug = true;
         show_iop_debug = true;
+    }
+
+    if (program.is_used("--elf"))
+    {
+        ee.elf_path = program.get<std::string>("--elf");
+        ee.sideload_elf = true;
+        ee.set_elf_state(true);
     }
 
     // Setup SDL
@@ -181,8 +368,6 @@ void ImGui_Neo2::run(int argc, char **argv)
     ImGui_ImplSDLRenderer3_Init(renderer);
 
     // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     ImGuiDebug debug_interface(*this, this->disassembler);
@@ -415,6 +600,17 @@ void ImGui_Neo2::run(int argc, char **argv)
                     // Start the emulation loop in separate threads
                     std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color]() {
                         while (!stop_requested) {
+                            // Call this before the step
+                            /*if (client_fd == -1)
+                            {
+                                memset(&ee.cop0_registers, 0, sizeof(ee.cop0_registers));
+                                ee.cop0_registers[12] = 0x70400004;
+                                ee.cop0_registers[15] = 0x2E20;
+                                ee.cop0_registers[16] = 0x440;
+                                connectToPCSX2();
+                            }
+
+                            if (!compareRegistersWithPCSX2(&ee))*/
                             this->ee.run(&breakpoints);
                         }
 
@@ -429,7 +625,6 @@ void ImGui_Neo2::run(int argc, char **argv)
                     is_running = true;
                 }
             }
-
 
             // Check for breakpoint hit
             if (breakpoints.is_breakpoint_hit()) {

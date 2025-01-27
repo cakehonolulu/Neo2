@@ -146,6 +146,10 @@ void ImGuiLogBackend::render()
         selectable_view = !selectable_view;
     }
 
+    if (ImGui::Button("Clear", button_size)) {
+        log_entries.clear();
+    }
+
     ImGui::End();
 
     ImGui::Begin("EE Logs");
@@ -191,6 +195,10 @@ void ImGuiLogBackend::render()
     ImGui::SetCursorPos(ImVec2(window_size.x - button_size.x - ImGui::GetStyle().ItemSpacing.x, window_size.y - button_size.y - ImGui::GetStyle().ItemSpacing.y - ImGui::GetStyle().WindowPadding.y));
     if (ImGui::Button(selectable_view ? "Rich text" : "Selectable logs", button_size)) {
         selectable_view = !selectable_view;
+    }
+
+    if (ImGui::Button("Clear", button_size)) {
+        ee_log_entries.clear();
     }
 
     ImGui::End();

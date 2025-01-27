@@ -40,8 +40,17 @@ struct TLBEntry {
     uint32_t entry_lo1 = 0;
 
     bool matches(uint32_t vaddr) const {
-        uint32_t page_size = 1 << (page_mask);  // This gets the page size from the page_mask
-        uint32_t vpn2_vaddr = (vaddr & ~(page_size - 1)) >> (13 + page_mask);  // Adjust by page size
+        // Ensure page_mask is within a valid range
+        uint32_t page_mask_value = page_mask & 0xFFF;  // Ensure page_mask does not exceed 12 bits (0-4095)
+        uint32_t page_size = 1U << (page_mask_value & 0x1F);  // Mask to ensure the shift is within a valid range (0-31)
+
+        // Calculate vpn2_vaddr without exceeding shift limits
+        uint32_t vpn2_vaddr = (vaddr & ~(page_size - 1));
+        if (page_mask_value < 19) {
+            vpn2_vaddr >>= (13 + page_mask_value);  // Only perform the shift if the value is within valid range
+        } else {
+            vpn2_vaddr = 0;  // If the mask is too large, ensure the result is safely set to 0
+        }
 
         // Check if the virtual page number matches the entry's VPN2 and ASID
         bool vpn_matches = vpn2_vaddr == vpn2;
