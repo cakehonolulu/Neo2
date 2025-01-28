@@ -191,7 +191,8 @@ void EE_DMAC::process_burst_mode(DMAC_Channel& channel) {
     while (channel.QWC > 0) {
         uint128_t data = bus.read128(channel.MADR); // Read data from memory
         if (!bus.gif.is_path3_masked()) {
-            bus.gif.write_fifo(data, channel.MADR, channel.CHCR); // Write data to GIF FIFO
+            Logger::debug("Writing to GIF, current QWC: 0x" + format("{:d}", channel.QWC));
+            bus.gif.write_fifo(data, channel.MADR, channel.QWC); // Write data to GIF FIFO
         }
         else
         {

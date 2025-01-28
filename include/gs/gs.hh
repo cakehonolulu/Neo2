@@ -35,8 +35,8 @@ public:
 
     // Method to handle incoming GIF data
     void write_gif_data(uint64_t data);
-    void write_raw_gif_data(uint8_t reg, uint64_t data);
-    void write_packed_gif_data(uint8_t reg, uint64_t data);
+    void write_internal_reg(uint8_t reg, uint64_t data);
+    void write_packed_gif_data(uint8_t reg, uint128_t data);
 
     uint64_t gs_privileged_registers[19]; // 19 privileged registers
     uint64_t gs_registers[55]; // 55 general registers
