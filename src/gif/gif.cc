@@ -98,20 +98,20 @@ void GIF::write(uint32_t address, uint32_t value) {
     Logger::info("GIF register write to " + reg_name + " with value 0x" + format("{:08X}", value));
 }
 
-void GIF::write_fifo(uint128_t data, uint32_t &madr, uint32_t &chcr) {
+void GIF::write_fifo(uint128_t data, uint32_t &madr, uint32_t &qwc) {
     if (is_path3_masked()) {
         Logger::warn("PATH3 is masked; ignoring GIF FIFO write");
         return;
     }
 
-    process_gif_data(data, madr, chcr);
+    process_gif_data(data, madr, qwc);
 }
 
 bool GIF::is_path3_masked() const {
     return gif_mode & 0x1;
 }
 
-void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &chcr) {
+void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
     switch (state) {
         case State::Idle:
         {
@@ -144,7 +144,7 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &chcr) {
             // Handle PRIM if enabled
             if (enable_prim) {
                 Logger::info("PRIM enabled; writing to GS PRIM register");
-                bus.gs.write_raw_gif_data(0, prim);
+                bus.gs.write_internal_reg(0, prim);
             }
 
             switch (format) {
@@ -166,9 +166,6 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &chcr) {
             process_packed_format();
             break;
 
-        case State::EOP:
-            
-
         default:
             Logger::error("Invalid GIF state");
             Neo2::exit(1, Neo2::Subsystem::GIF);
@@ -183,14 +180,22 @@ void GIF::process_packed_format() {
 
     for (uint32_t reg = nregs; reg > 0; --reg) {
         uint128_t data = bus.read128(current_gif_addr); // Simulate reading from FIFO
-        uint32_t reg_index = (data.u64[1] >> ((nregs - reg) << 2)) & 0xF;
-        bus.gs.write_packed_gif_data(reg_index, data.u64[0]);
+        uint32_t reg_index = (current_gif_tag.u64[1] >> ((nregs - reg) << 2)) & 0xF;
+        bus.gs.write_packed_gif_data(reg_index, data);
     }
     current_nloop--;
 
     if (current_nloop == 0) {
+        state = State::ProcessPackedEnd;
+        Logger::info("End of packed reached");
+        if (!((current_gif_tag.u64[0] >> 15) & 0x1))
+        {
+            Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
+        }
+        else
+        {
+            gif_ctrl |= 0x1; // Update GIF_CTRL to indicate the transfer is complete
+        }
         state = State::Idle;
-        Logger::info("End of packet (EOP) reached");
-        gif_ctrl |= 0x1; // Update GIF_CTRL to indicate the transfer is complete
     }
 }
