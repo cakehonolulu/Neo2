@@ -15,6 +15,7 @@ class Neo2 {
         EE_INTC,
         EE_DMAC,
         GIF,
+        GS,
         Disassembler,
         Frontend
     };

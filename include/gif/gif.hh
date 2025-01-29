@@ -33,7 +33,7 @@ public:
     void process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc);
     void process_packed_format();
     void process_reglist_format(uint32_t nloop, uint32_t nregs);
-    void process_image_format(uint32_t nloop);
+    void process_image_format(uint128_t data);
 
 private:
     Bus& bus; // Reference to the Bus instance

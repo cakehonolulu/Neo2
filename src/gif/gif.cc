@@ -153,6 +153,11 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
                     current_nloop = nloop;
                     break;
 
+                case 2: // IMAGE Format
+                    state = State::ProcessingImage;
+                    current_nloop = nloop;
+                    break;
+
                 default:
                     Logger::error("Unsupported GIF data format: " + std::to_string(format));
                     Neo2::exit(1, Neo2::Subsystem::GIF);
@@ -164,6 +169,10 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
         case State::ProcessingPacked:
             current_gif_addr += 16;
             process_packed_format();
+            break;
+
+        case State::ProcessingImage:
+            process_image_format(data);
             break;
 
         default:
@@ -183,6 +192,29 @@ void GIF::process_packed_format() {
         uint32_t reg_index = (current_gif_tag.u64[1] >> ((nregs - reg) << 2)) & 0xF;
         bus.gs.write_packed_gif_data(reg_index, data);
     }
+    current_nloop--;
+
+    if (current_nloop == 0) {
+        state = State::ProcessPackedEnd;
+        Logger::info("End of packed reached");
+        if (!((current_gif_tag.u64[0] >> 15) & 0x1))
+        {
+            Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
+        }
+        else
+        {
+            gif_ctrl |= 0x1; // Update GIF_CTRL to indicate the transfer is complete
+        }
+        state = State::Idle;
+    }
+}
+
+void GIF::process_image_format(uint128_t data) {
+    Logger::info("Processing IMAGE format data: NLOOP=" + std::to_string(nloop));
+
+    bus.gs.write_hwreg(data.u64[0]);
+    bus.gs.write_hwreg(data.u64[1]);
+
     current_nloop--;
 
     if (current_nloop == 0) {

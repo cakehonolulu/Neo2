@@ -254,6 +254,49 @@ void log_instruction(EE* cpu) {
     logfile.close();
 }
 
+SDL_Texture* vram_texture = nullptr;
+float zoom_factor = 1.0f;
+
+void create_vram_texture(SDL_Renderer* renderer, GS& gs) {
+    if (vram_texture == nullptr) {
+        vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, 640, 500);
+        SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+    }
+
+    void* pixels;
+    int pitch;
+    SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+    uint32_t* dst = static_cast<uint32_t*>(pixels);
+    uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+    for (int y = 0; y < 640; ++y) {
+        for (int x = 0; x < 500; ++x) {
+            uint32_t color = src[y * 500 + x];
+            dst[y * 500 + x] = color;
+        }
+    }
+
+    SDL_UnlockTexture(vram_texture);
+}
+
+void render_vram_window(SDL_Renderer* renderer, GS& gs) {
+    ImGui::Begin("VRAM Viewer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    if (ImGui::Button("Refresh VRAM Texture")) {
+        create_vram_texture(renderer, gs);
+    }
+
+    ImGui::SliderFloat("Zoom", &zoom_factor, 0.1f, 4.0f, "%.1f");
+
+    if (vram_texture != nullptr) {
+        ImVec2 texture_size = ImVec2(1024 * zoom_factor, 1024 * zoom_factor);
+        ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+    }
+
+    ImGui::End();
+}
+
 void ImGui_Neo2::run(int argc, char **argv)
 {
     // Main loop
@@ -275,22 +318,33 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     static bool show_ram_view = false;
 
+    static bool show_vram_viewer = false;
+
     argparse::ArgumentParser program("Neo2");
 
     std::atomic<bool> is_running(false);
     std::atomic<bool> stop_requested(false);  // Flag to stop the thread
     std::mutex status_mutex;  // Mutex for thread-safe status updates
+    Breakpoint breakpoints;
 
     program.add_argument("--bios")
         .help("Path to BIOS")
         .nargs(1);
 
     program.add_argument("--full-debug")
-        .help("Enable debug windows")
+        .help("Enable all debug windows")
+        .nargs(0);
+
+    program.add_argument("--ee-debug")
+        .help("Enable EE debug windows")
         .nargs(0);
 
     program.add_argument("--elf")
         .help("Path to ELF")
+        .nargs(1);
+
+    program.add_argument("--ee-breakpoint")
+        .help("Breakpoint address for EE")
         .nargs(1);
 
     try
@@ -316,11 +370,28 @@ void ImGui_Neo2::run(int argc, char **argv)
         show_iop_debug = true;
     }
 
+    if (program.is_used("--ee-debug"))
+    {
+        show_ee_debug = true;
+    }
+
     if (program.is_used("--elf"))
     {
         ee.elf_path = program.get<std::string>("--elf");
         ee.sideload_elf = true;
         ee.set_elf_state(true);
+    }
+
+    if (program.is_used("--ee-breakpoint"))
+    {
+        std::string breakpoints_str = program.get<std::string>("--ee-breakpoint");
+        std::stringstream ss(breakpoints_str);
+        std::string breakpoint;
+        while (std::getline(ss, breakpoint, ','))
+        {
+            uint32_t address = std::stoul(breakpoint, nullptr, 16);
+            breakpoints.add_breakpoint(address, CoreType::EE);
+        }
     }
 
     // Setup SDL
@@ -371,7 +442,6 @@ void ImGui_Neo2::run(int argc, char **argv)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     ImGuiDebug debug_interface(*this, this->disassembler);
-    Breakpoint breakpoints;
 	std::string bios_file_path;
     std::string status_text = "Idle";
     ImVec4 status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for Idle
@@ -435,6 +505,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
                 ImGui::MenuItem("Show Bus Debug", nullptr, &show_bus_debug);
                 ImGui::MenuItem("Show RAM View", nullptr, &show_ram_view);
+                ImGui::MenuItem("Show VRAM Viewer", nullptr, &show_vram_viewer);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -499,6 +570,10 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         if (show_ram_view) {
             debug_interface.render_memory_view(&bus);
+        }
+
+        if (show_vram_viewer) {
+            render_vram_window(renderer, bus.gs);
         }
 
         // Handle the file dialog for loading BIOS
