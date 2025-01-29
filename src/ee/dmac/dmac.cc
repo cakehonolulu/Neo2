@@ -1,6 +1,7 @@
 #include "neo2.hh"
 #include <ee/dmac/dmac.hh>
 #include <log/log.hh>
+#include <fstream>
 
 #if __has_include(<format>)
 #include <format>
@@ -166,9 +167,22 @@ void EE_DMAC::process_gif_dma(DMAC_Channel& channel) {
             break;
 
         case 1: // Chain mode
+        {
             Logger::info("Unimplemented chain mode transfer for GIF DMA");
+
+            // Dump bus.gs.vram to a binary file
+            std::ofstream vram_dump("vram_dump.bin", std::ios::binary);
+            if (vram_dump.is_open()) {
+                vram_dump.write(reinterpret_cast<const char*>(bus.gs.vram), GS::VRAM_SIZE);
+                vram_dump.close();
+                Logger::info("VRAM dumped to vram_dump.bin");
+            } else {
+                Logger::error("Failed to open vram_dump.bin for writing");
+            }
+
             Neo2::exit(1, Neo2::Subsystem::EE_DMAC);
             break;
+        }
 
         case 2: // Interleave mode (unimplemented)
             Logger::error("Unimplemented Interleave mode transfer for GIF DMA");
