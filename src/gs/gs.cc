@@ -17,7 +17,7 @@ GS::GS() {
     for (int i = 0; i < 19; ++i) {
         gs_privileged_registers[i] = 0;
     }
-    vram = new uint32_t[VRAM_SIZE / sizeof(uint32_t)]();
+    vram = new uint32_t[VRAM_SIZE]();
     Logger::set_subsystem("GS");
 }
 
@@ -69,11 +69,149 @@ void GS::write(uint32_t address, uint64_t value) {
 
 void GS::simul_vblank() {
     // Simulate GS operation complete by toggling bit 3
-    gs_privileged_registers[0x12] |= 0x8; // Set bit 3
+    gs_privileged_registers[15] |= 0x8; // Set bit 3
 }
 
 void GS::write_internal_reg(uint8_t reg, uint64_t data) {
     switch (reg) {
+        case 0x00: // PRIM
+            gs_registers[0x00] = data;
+            break;
+        case 0x01: // RGBAQ
+            gs_registers[0x01] = data;
+            break;
+        case 0x02: // ST
+            gs_registers[0x02] = data;
+            break;
+        case 0x03: // UV
+            gs_registers[0x03] = data;
+            break;
+        case 0x04: // XYZF2
+            gs_registers[0x04] = data;
+            break;
+        case 0x05: // XYZ2
+            gs_registers[0x05] = data;
+            break;
+        case 0x06: // TEX0_1
+            gs_registers[0x06] = data;
+            break;
+        case 0x07: // TEX0_2
+            gs_registers[0x07] = data;
+            break;
+        case 0x08: // CLAMP_1
+            gs_registers[0x08] = data;
+            break;
+        case 0x09: // CLAMP_2
+            gs_registers[0x09] = data;
+            break;
+        case 0x0A: // FOG
+            gs_registers[0x0A] = data;
+            break;
+        case 0x0C: // XYZF3
+            gs_registers[0x0C] = data;
+            break;
+        case 0x0D: // XYZ3
+            gs_registers[0x0D] = data;
+            break;
+        case 0x14: // TEX1_1
+            gs_registers[0x14] = data;
+            break;
+        case 0x15: // TEX1_2
+            gs_registers[0x15] = data;
+            break;
+        case 0x16: // TEX2_1
+            gs_registers[0x16] = data;
+            break;
+        case 0x17: // TEX2_2
+            gs_registers[0x17] = data;
+            break;
+        case 0x18: // XYOFFSET_1
+            gs_registers[0x18] = data;
+            break;
+        case 0x19: // XYOFFSET_2
+            gs_registers[0x19] = data;
+            break;
+        case 0x1A: // PRMODECONT
+            gs_registers[0x1A] = data;
+            break;
+        case 0x1B: // PRMODE
+            gs_registers[0x1B] = data;
+            break;
+        case 0x1C: // TEXCLUT
+            gs_registers[0x1C] = data;
+            break;
+        case 0x22: // SCANMSK
+            gs_registers[0x22] = data;
+            break;
+        case 0x34: // MIPTBP1_1
+            gs_registers[0x34] = data;
+            break;
+        case 0x35: // MIPTBP1_2
+            gs_registers[0x35] = data;
+            break;
+        case 0x36: // MIPTBP2_1
+            gs_registers[0x36] = data;
+            break;
+        case 0x37: // MIPTBP2_2
+            gs_registers[0x37] = data;
+            break;
+        case 0x3B: // TEXA
+            gs_registers[0x3B] = data;
+            break;
+        case 0x3D: // FOGCOL
+            gs_registers[0x3D] = data;
+            break;
+        case 0x3F: // TEXFLUSH
+            gs_registers[0x3F] = data;
+            break;
+        case 0x40: // SCISSOR_1
+            gs_registers[0x40] = data;
+            break;
+        case 0x41: // SCISSOR_2
+            gs_registers[0x41] = data;
+            break;
+        case 0x42: // ALPHA_1
+            gs_registers[0x42] = data;
+            break;
+        case 0x43: // ALPHA_2
+            gs_registers[0x43] = data;
+            break;
+        case 0x44: // DIMX
+            gs_registers[0x44] = data;
+            break;
+        case 0x45: // DTHE
+            gs_registers[0x45] = data;
+            break;
+        case 0x46: // COLCLAMP
+            gs_registers[0x46] = data;
+            break;
+        case 0x47: // TEST_1
+            gs_registers[0x47] = data;
+            break;
+        case 0x48: // TEST_2
+            gs_registers[0x48] = data;
+            break;
+        case 0x49: // PABE
+            gs_registers[0x49] = data;
+            break;
+        case 0x4A: // FBA_1
+            gs_registers[0x4A] = data;
+            break;
+        case 0x4B: // FBA_2
+            gs_registers[0x4B] = data;
+            break;
+        case 0x4C: // FRAME_1
+            gs_registers[0x4C] = data;
+            break;
+        case 0x4D: // FRAME_2
+            gs_registers[0x4D] = data;
+            break;
+        case 0x4E: // ZBUF_1
+            gs_registers[0x4E] = data;
+            break;
+        case 0x4F: // ZBUF_2
+            gs_registers[0x4F] = data;
+            break;
         case 0x50: // BITBLTBUF
             set_bitbltbuf(data);
             break;
@@ -89,13 +227,18 @@ void GS::write_internal_reg(uint8_t reg, uint64_t data) {
         case 0x54: // HWREG
             write_hwreg(data);
             break;
+        case 0x60: // SIGNAL
+            gs_registers[0x60] = data;
+            break;
+        case 0x61: // FINISH
+            gs_registers[0x61] = data;
+            break;
+        case 0x62: // LABEL
+            gs_registers[0x62] = data;
+            break;
         default:
-            if (reg < 55) {
-                gs_registers[reg] = data;
-                Logger::info(std::string(INTERNAL_REGISTER_NAMES[reg]) + " register 0x" + format("{:016X}", data));
-            } else {
-                Logger::error("Invalid internal GS register address: 0x" + format("{:X}", reg));
-            }
+            Logger::error("Invalid GS internal register write to 0x" + format("{:X}", reg));
+            Neo2::exit(1, Neo2::Subsystem::GS);
             break;
     }
 }
@@ -252,11 +395,34 @@ void GS::set_trxdir(uint64_t value) {
     destination_y = 0;
 
     if (transmission_direction == 2) {
-        Logger::error("VRAM to VRAM unimpl.");
-        Neo2::exit(1, Neo2::Subsystem::GS);
+        blit_vram();
+    }
+    else
+    {
+        Texture texture;
+        texture.address = destination_base_pointer + destination_rectangle_x + (destination_rectangle_y * destination_buffer_width);
+        texture.width = transmission_area_pixel_width;
+        texture.height = transmission_area_pixel_height;
+        texture.format = destination_format;
+        texture.name = "Texture_" + std::to_string(textures.size());
+        upload_texture(texture);
     }
 
     Logger::info("TRXDIR set to 0x" + format("{:016X}", value));
+}
+
+void GS::blit_vram() {
+    for (uint32_t y = 0; y < transmission_area_pixel_height; y++) {
+        uint32_t src = source_base_pointer + source_rectangle_x + (source_rectangle_y * source_buffer_width) + (y * source_buffer_width);
+        uint32_t dst = destination_base_pointer + destination_rectangle_x + (destination_rectangle_y * destination_buffer_width) + (y * destination_buffer_width);
+
+        if (src + transmission_area_pixel_width <= VRAM_SIZE && dst + transmission_area_pixel_width <= VRAM_SIZE) {
+            memcpy(vram + dst, vram + src, transmission_area_pixel_width * sizeof(uint32_t));
+        } else {
+            Logger::error("VRAM blit out of bounds");
+            Neo2::exit(1, Neo2::Subsystem::GS);
+        }
+    }
 }
 
 void GS::transfer_vram() {
@@ -274,4 +440,13 @@ void GS::transfer_vram() {
 
         destination_y++;
     }
+}
+
+void GS::upload_texture(const Texture& texture) {
+    textures.push_back(texture);
+    Logger::info("Texture uploaded: " + texture.name + " at address 0x" + format("{:08X}", texture.address));
+}
+
+const std::vector<GS::Texture>& GS::get_textures() const {
+    return textures;
 }

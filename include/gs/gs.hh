@@ -3,9 +3,18 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class GS {
 public:
+    struct Texture {
+        uint32_t address;
+        uint32_t width;
+        uint32_t height;
+        uint32_t format;
+        std::string name;
+    };
+
     // Constants for register addresses
     static constexpr uint32_t BASE_ADDRESS = 0x12000000;
     static constexpr uint32_t CSR_ADDRESS = 0x12001000;
@@ -50,14 +59,20 @@ public:
     void set_trxpos(uint64_t value);
     void set_trxreg(uint64_t value);
     void set_trxdir(uint64_t value);
+    void blit_vram();
     void transfer_vram();
 
     uint32_t* vram; // VRAM pointer
 
     uint64_t gs_privileged_registers[19]; // 19 privileged registers
-    uint64_t gs_registers[55]; // 55 general registers
+    uint64_t gs_registers[0x63]; // 55 general registers
 
     void write_hwreg(uint64_t data);
+
+    // Texture tracking
+    void upload_texture(const Texture& texture);
+    const std::vector<Texture>& get_textures() const;
+
 private:
     uint64_t bitbltbuf = 0;
     uint64_t trxpos = 0;
@@ -92,4 +107,6 @@ private:
     uint32_t source_y = 0;
     uint32_t destination_x = 0;
     uint32_t destination_y = 0;
+
+    std::vector<Texture> textures; // List of uploaded textures
 };
