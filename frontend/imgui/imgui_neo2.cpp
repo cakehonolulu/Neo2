@@ -257,41 +257,124 @@ void log_instruction(EE* cpu) {
 SDL_Texture* vram_texture = nullptr;
 float zoom_factor = 1.0f;
 
-void create_vram_texture(SDL_Renderer* renderer, GS& gs) {
-    if (vram_texture == nullptr) {
-        vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, 640, 500);
-        SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
-    }
+
+SDL_Texture* create_texture_from_vram(SDL_Renderer* renderer, GS& gs, const GS::Texture& texture) {
+    int tex_h = texture.height * 2;
+    SDL_Texture* sdl_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, texture.width, tex_h);
+    SDL_SetTextureScaleMode(sdl_texture, SDL_SCALEMODE_LINEAR);
 
     void* pixels;
     int pitch;
-    SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+    SDL_LockTexture(sdl_texture, nullptr, &pixels, &pitch);
 
     uint32_t* dst = static_cast<uint32_t*>(pixels);
     uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
 
-    for (int y = 0; y < 640; ++y) {
-        for (int x = 0; x < 500; ++x) {
-            uint32_t color = src[y * 500 + x];
-            dst[y * 500 + x] = color;
+    for (uint32_t y = 0; y < texture.width; ++y) {
+        for (uint32_t x = 0; x < tex_h; ++x) {
+            uint32_t vram_index = (texture.address) + y * tex_h + x;
+            dst[y * tex_h + x] = src[vram_index];
         }
     }
 
-    SDL_UnlockTexture(vram_texture);
+    SDL_UnlockTexture(sdl_texture);
+    return sdl_texture;
 }
 
-void render_vram_window(SDL_Renderer* renderer, GS& gs) {
-    ImGui::Begin("VRAM Viewer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-    if (ImGui::Button("Refresh VRAM Texture")) {
-        create_vram_texture(renderer, gs);
+void render_textures(SDL_Renderer* renderer, GS& gs) {
+    ImGui::Begin("Textures", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    const auto& textures = gs.get_textures();
+    static int selected_texture_index = -1;
+    static std::vector<bool> texture_windows_open(textures.size(), false);
+    static std::vector<SDL_Texture*> sdl_textures(textures.size(), nullptr);
+
+    ImGui::Text("Available Textures:");
+    ImGui::Separator();
+
+    for (size_t i = 0; i < textures.size(); ++i) {
+        const auto& texture = textures[i];
+        if (ImGui::Selectable(texture.name.c_str(), selected_texture_index == static_cast<int>(i))) {
+            selected_texture_index = static_cast<int>(i);
+            texture_windows_open[i] = true;
+            if (!sdl_textures[i]) {
+                sdl_textures[i] = create_texture_from_vram(renderer, gs, texture);
+            }
+        }
     }
 
-    ImGui::SliderFloat("Zoom", &zoom_factor, 0.1f, 4.0f, "%.1f");
+    ImGui::Separator();
 
-    if (vram_texture != nullptr) {
-        ImVec2 texture_size = ImVec2(1024 * zoom_factor, 1024 * zoom_factor);
-        ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+    for (size_t i = 0; i < textures.size(); ++i) {
+        if (texture_windows_open[i]) {
+            const auto& texture = textures[i];
+            bool open = texture_windows_open[i];
+            ImGui::Begin(texture.name.c_str(), &open, ImGuiWindowFlags_AlwaysAutoResize);
+            texture_windows_open[i] = open;
+
+            ImGui::Text("Address: 0x%08X", texture.address);
+            ImGui::Text("Width: %d", texture.width);
+            ImGui::Text("Height: %d", texture.height);
+
+            std::string format;
+
+            switch (texture.format) {
+                case 0x00:
+                    format="PSMCT32";
+                    break;
+                case 0x01:
+                    format="PSMCT24";
+                    break;
+                case 0x02:
+                    format="PSMCT16";
+                    break;
+                case 0x0A:
+                    format="PSMCT16S";
+                    break;
+                case 0x13:
+                    format="PSMCT8";
+                    break;
+                case 0x14:
+                    format="PSMCT4";
+                    break;
+                case 0x1B:
+                    format="PSMCT8H";
+                    break;
+                case 0x24:
+                    format="PSMCT4HL";
+                    break;
+                case 0x2C:
+                    format="PSMCT4HH";
+                    break;
+                case 0x30:
+                    format="PSMZ32";
+                    break;
+                case 0x31:
+                    format="PSMZ24";
+                    break;
+                case 0x32:
+                    format="PSMZ16";
+                    break;
+                case 0x3A:
+                    format="PSMZ16S";
+                    break;
+                default:
+                    format="Unknown";
+                    break;
+            }
+            ImGui::Text("Format: %s", format.c_str());
+
+            ImVec2 texture_size = ImVec2(texture.width * zoom_factor, texture.height * zoom_factor);
+            ImGui::Image(reinterpret_cast<ImTextureID>(sdl_textures[i]), texture_size);
+
+            ImGui::End();
+
+            if (!open) {
+                SDL_DestroyTexture(sdl_textures[i]);
+                sdl_textures[i] = nullptr;
+            }
+        }
     }
 
     ImGui::End();
@@ -318,7 +401,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     static bool show_ram_view = false;
 
-    static bool show_vram_viewer = false;
+    static bool show_textures = false;
 
     argparse::ArgumentParser program("Neo2");
 
@@ -505,7 +588,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
                 ImGui::MenuItem("Show Bus Debug", nullptr, &show_bus_debug);
                 ImGui::MenuItem("Show RAM View", nullptr, &show_ram_view);
-                ImGui::MenuItem("Show VRAM Viewer", nullptr, &show_vram_viewer);
+                ImGui::MenuItem("Show Textures", nullptr, &show_textures);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -572,8 +655,8 @@ void ImGui_Neo2::run(int argc, char **argv)
             debug_interface.render_memory_view(&bus);
         }
 
-        if (show_vram_viewer) {
-            render_vram_window(renderer, bus.gs);
+        if (show_textures) {
+            render_textures(renderer, bus.gs);
         }
 
         // Handle the file dialog for loading BIOS

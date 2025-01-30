@@ -53,5 +53,5 @@ private:
     void process_gif_dma(DMAC_Channel& channel);
     void process_burst_mode(DMAC_Channel& channel);
     void process_chain_mode(DMAC_Channel& channel);
-    void handle_chain_tag(DMAC_Channel& channel);
+    void handle_chain_tag(DMAC_Channel& channel, uint32_t tag_id, uint32_t addr, uint32_t qwc, bool& tag_end);
 };

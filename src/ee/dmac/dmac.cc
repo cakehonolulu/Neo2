@@ -167,22 +167,10 @@ void EE_DMAC::process_gif_dma(DMAC_Channel& channel) {
             break;
 
         case 1: // Chain mode
-        {
-            Logger::info("Unimplemented chain mode transfer for GIF DMA");
-
-            // Dump bus.gs.vram to a binary file
-            std::ofstream vram_dump("vram_dump.bin", std::ios::binary);
-            if (vram_dump.is_open()) {
-                vram_dump.write(reinterpret_cast<const char*>(bus.gs.vram), GS::VRAM_SIZE);
-                vram_dump.close();
-                Logger::info("VRAM dumped to vram_dump.bin");
-            } else {
-                Logger::error("Failed to open vram_dump.bin for writing");
-            }
-
-            Neo2::exit(1, Neo2::Subsystem::EE_DMAC);
+            std::cout << "Chain mode transfer for GIF DMA" << std::endl;
+            fflush(stdout);
+            process_chain_mode(channel);
             break;
-        }
 
         case 2: // Interleave mode (unimplemented)
             Logger::error("Unimplemented Interleave mode transfer for GIF DMA");
@@ -197,6 +185,114 @@ void EE_DMAC::process_gif_dma(DMAC_Channel& channel) {
 
     // Clear the STR bit in CHCR to mark the channel as inactive
     channel.CHCR &= ~CHCR_STR_BIT;
+}
+
+void EE_DMAC::process_chain_mode(DMAC_Channel& channel) {
+    bool tag_end = false;
+
+    do {
+        uint128_t tag = bus.read128(channel.TADR);
+        uint64_t low = tag.u64[0];
+        uint32_t qwc = low & 0xFFFF;
+        uint32_t tag_id = (low >> 28) & 0x7;
+        uint32_t addr = (low >> 32) & 0x7FFFFFFF;
+        bool irq = (low >> 31) & 0x1;
+
+        std::cout << "Processing chain tag, ID: " + std::to_string(tag_id) + ", QWC: " + std::to_string(qwc) + ", ADDR: 0x" + format("{:08X}", addr) << std::endl;
+        fflush(stdout);
+        handle_chain_tag(channel, tag_id, addr, qwc, tag_end);
+
+        if (irq && (channel.CHCR & 0x80)) {
+            std::cout << "IRQ requested by DMAtag" << std::endl;
+            fflush(stdout);
+            break;
+        }
+
+        while (qwc > 0) {
+            uint128_t data = bus.read128(channel.MADR);
+            if (!bus.gif.is_path3_masked()) {
+                std::cout  << "Writing to GIF, current QWC: 0x" + format("{:d}", qwc) << std::endl;
+                fflush(stdout);
+                bus.gif.write_fifo(data, channel.MADR, qwc);
+            } else {
+                std::cout << "Chain mode PATH3 masked; ignoring GIF FIFO write" << std::endl;
+            }
+            channel.MADR += 16;
+            qwc -= 1;
+        }
+
+        if (tag_id == 1) {
+            channel.TADR = channel.MADR;
+        }
+    } while (!tag_end);
+}
+
+void EE_DMAC::handle_chain_tag(DMAC_Channel& channel, uint32_t tag_id, uint32_t addr, uint32_t qwc, bool& tag_end) {
+    switch (tag_id) {
+        case 0: // refe
+            channel.MADR = addr;
+            channel.TADR += 16;
+            tag_end = true;
+            break;
+        case 1: // cnt
+            channel.MADR = channel.TADR + 16;
+            channel.TADR = channel.MADR;
+            break;
+        case 2: // next
+            channel.MADR = channel.TADR + 16;
+            channel.TADR = addr;
+            break;
+        case 3: // ref
+            channel.MADR = addr;
+            channel.TADR += 16;
+            break;
+        case 4: // refs
+            //channel.MADR = addr;
+            Logger::error("Unsupported tag id: 4");
+            Neo2::exit(1, Neo2::Subsystem::EE_DMAC);
+            break;
+        case 5: // call
+        {
+            channel.MADR = channel.TADR + 16;
+
+            int asp = (channel.CHCR >> 4) & 3;
+
+            if (!asp) {
+                channel.ASR0 = channel.MADR + (qwc * 16);
+            } else if (asp == 1) {
+                channel.ASR1 = channel.MADR + (qwc * 16);
+            }
+            channel.TADR = addr;
+            channel.CHCR += 10;
+            break;
+        }
+        case 6: // ret
+        {
+            channel.MADR = channel.TADR + 16;
+
+            int asp = (channel.CHCR >> 4) & 3;
+
+            if (asp == 2) {
+                channel.TADR = channel.ASR1;
+                channel.CHCR -= 0x10;
+            } else if (asp == 1) {
+                channel.TADR = channel.ASR0;
+                channel.CHCR -= 0x10;
+            } else {
+                tag_end = true;
+            }
+            break;
+        }
+        case 7: // end
+            channel.MADR = channel.TADR + 16;
+            tag_end = true;
+            break;
+        default:
+            std::cout << "Unknown chain tag ID: " + std::to_string(tag_id) << std::endl;
+            fflush(stdout);
+            Neo2::exit(1, Neo2::Subsystem::EE_DMAC);
+            break;
+    }
 }
 
 void EE_DMAC::process_burst_mode(DMAC_Channel& channel) {
