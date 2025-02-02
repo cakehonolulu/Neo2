@@ -58,7 +58,7 @@ uint32_t GIF::read(uint32_t address) {
             Logger::error("Invalid GIF register read at address 0x" + format("{:08X}", address));
             return 0;
     }
-    Logger::info("GIF register read from " + reg_name);
+    //Logger::info("GIF register read from " + reg_name);
     return (reg_name.rfind("GIF_FIFO", 0) == 0) ? gif_fifo[(address - GIF_FIFO) / 4] : *(reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(this) + (address - GIF_CTRL)));
 }
 
@@ -95,55 +95,60 @@ void GIF::write(uint32_t address, uint32_t value) {
             Logger::error("Invalid GIF register write at address 0x" + format("{:08X}", address));
             return;
     }
-    Logger::info("GIF register write to " + reg_name + " with value 0x" + format("{:08X}", value));
+    //Logger::info("GIF register write to " + reg_name + " with value 0x" + format("{:08X}", value));
 }
 
-void GIF::write_fifo(uint128_t data, uint32_t &madr, uint32_t &qwc) {
+void GIF::write_fifo(uint128_t data, uint32_t &madr, uint32_t &qwc, bool chain_mode) {
     if (is_path3_masked()) {
         Logger::warn("PATH3 is masked; ignoring GIF FIFO write");
         return;
     }
 
-    process_gif_data(data, madr, qwc);
+    process_gif_data(data, madr, qwc, chain_mode);
 }
 
 bool GIF::is_path3_masked() const {
     return gif_mode & 0x1;
 }
 
-void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
+void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc, bool chain_mode) {
+    //if (chain_mode) { printf("GIF -> Should read from 0x%08X\n", madr); }
     switch (state) {
         case State::Idle:
         {
-            Logger::debug("Raw GIFTag: 0x" + format("{:016X}", data.u64[1]) + format("{:016X}", data.u64[0]));
+            //if (chain_mode) printf("GIF -> Reading GIFtag\n");
+            //Logger::debug("Raw GIFTag: 0x" + format("{:016X}", data.u64[1]) + format("{:016X}", data.u64[0]));
             current_gif_addr = madr;
+
+            q = 0x3f800000;
 
             // Parse GIFTag
             uint64_t low = data.u64[0];
 
             nloop = low & 0x7FFF;          // Bits 0-14
-            bool eop = (low >> 15) & 0x1;  // Bit 15
             bool enable_prim = (low >> 46) & 0x1; // Bit 46
             uint16_t prim = (low >> 47) & 0x7FF; // Bits 47-57
             uint8_t format = (low >> 58) & 0x3; // Bits 58-59
-            nregs = (low >> 60) & 0xF; // Bits 60-63
+            nregs = (low >> 60); // Bits 60-63
+            if (nregs == 0) nregs = 16;
+            regs = data.u64[1];
+            regs_left = nregs;
 
             current_gif_tag.u128 = data.u128;
 
-            Logger::info("Processing GIFtag: NLOOP=" + std::to_string(nloop) +
+            /*Logger::info("Processing GIFtag: NLOOP=" + std::to_string(nloop) +
                          ", EOP=" + std::to_string(eop) +
                          ", NREGS=" + std::to_string(nregs) +
-                         ", Format=" + std::to_string(format));
+                         ", Format=" + std::to_string(format));*/
 
             // If NLOOP is 0, ignore the GIFtag
             if (nloop == 0) {
-                Logger::warn("NLOOP is zero; skipping GIFtag");
+                //Logger::warn("NLOOP is zero; skipping GIFtag");
                 return;
             }
 
             // Handle PRIM if enabled
             if (enable_prim) {
-                Logger::info("PRIM enabled; writing to GS PRIM register");
                 bus.gs.write_internal_reg(0, prim);
             }
 
@@ -167,7 +172,6 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
         }
 
         case State::ProcessingPacked:
-            current_gif_addr += 16;
             process_packed_format();
             break;
 
@@ -183,23 +187,20 @@ void GIF::process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc) {
 }
 
 void GIF::process_packed_format() {
-    Logger::info("Processing PACKED format data: NLOOP=" + std::to_string(nloop) +
-                 " (Current NLOOP=" + std::to_string(current_nloop) + ")" +
-                 ", NREGS=" + std::to_string(nregs));
-
-    for (uint32_t reg = nregs; reg > 0; --reg) {
-        uint128_t data = bus.read128(current_gif_addr); // Simulate reading from FIFO
-        uint32_t reg_index = (current_gif_tag.u64[1] >> ((nregs - reg) << 2)) & 0xF;
-        bus.gs.write_packed_gif_data(reg_index, data);
+    current_gif_addr += 16;
+    int reg_offset = (nregs - regs_left) << 2;
+    uint8_t reg = (regs & (0xF << reg_offset)) >> reg_offset;
+    uint128_t data = bus.read128(current_gif_addr);
+    bus.gs.write_packed_gif_data(reg, data, q);
+    regs_left--;
+    if (!regs_left) {
+        regs_left = nregs;
+        current_nloop--;
     }
-    current_nloop--;
-
     if (current_nloop == 0) {
-        state = State::ProcessPackedEnd;
-        Logger::info("End of packed reached");
         if (!((current_gif_tag.u64[0] >> 15) & 0x1))
         {
-            Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
+            //Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
         }
         else
         {
@@ -210,7 +211,7 @@ void GIF::process_packed_format() {
 }
 
 void GIF::process_image_format(uint128_t data) {
-    Logger::info("Processing IMAGE format data: NLOOP=" + std::to_string(nloop));
+    //Logger::info("Processing IMAGE format data: NLOOP=" + std::to_string(nloop));
 
     bus.gs.write_hwreg(data.u64[0]);
     bus.gs.write_hwreg(data.u64[1]);
@@ -218,11 +219,10 @@ void GIF::process_image_format(uint128_t data) {
     current_nloop--;
 
     if (current_nloop == 0) {
-        state = State::ProcessPackedEnd;
-        Logger::info("End of packed reached");
+        //Logger::info("End of packed reached");
         if (!((current_gif_tag.u64[0] >> 15) & 0x1))
         {
-            Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
+            //Logger::info("GIF Packed transfer complete, still not EOP, continuing processing...");
         }
         else
         {

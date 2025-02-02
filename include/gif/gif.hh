@@ -26,13 +26,13 @@ public:
     void write(uint32_t address, uint32_t value);
 
     // Methods to handle GIF FIFO and masking
-    void write_fifo(uint128_t data, uint32_t &madr, uint32_t &qwc);
+    void write_fifo(uint128_t data, uint32_t &madr, uint32_t &qwc, bool chain_mode);
     void mask_fifo(uint32_t mask);
     bool is_path3_masked() const;
 
-    void process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc);
+    void process_gif_data(uint128_t data, uint32_t &madr, uint32_t &qwc, bool chain_mode);
     void process_packed_format();
-    void process_reglist_format(uint32_t nloop, uint32_t nregs);
+    void process_reglist_format();
     void process_image_format(uint128_t data);
 
 private:
@@ -54,6 +54,7 @@ private:
         Idle,
         ProcessingGIFTag,
         ProcessingPacked,
+        ProcessingChain,
         ProcessingReglist,
         ProcessingImage,
         EOP,
@@ -64,4 +65,9 @@ private:
     uint32_t nloop;
     uint32_t current_nloop;
     uint32_t nregs;
+    uint32_t regs_left;
+    uint64_t regs;
+    uint32_t q;
+
+    void process_chain_format();
 };

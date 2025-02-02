@@ -93,6 +93,9 @@ public:
     void execute_opcode(Breakpoint *breakpoints);
     CompiledBlock* compile_block(uint32_t start_pc, Breakpoint *breakpoints);
 
+    // New method to execute a limited number of cycles
+    void execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints);
+
     RunType exec_type = RunType::Run;
 
     std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> get_block_cache() const {
@@ -267,4 +270,7 @@ private:
 
     void ee_jit_cop1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_cop2(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
+
+    // New member to track the remaining cycles to execute
+    uint64_t remaining_cycles;
 };

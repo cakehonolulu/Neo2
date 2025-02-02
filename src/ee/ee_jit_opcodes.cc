@@ -3693,12 +3693,12 @@ void EEJIT::ee_jit_syscall(uint32_t opcode, uint32_t& current_pc, bool& is_branc
         builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(3 * 2))
     );
 
-    builder->CreateCall(ee_print_syscall, {
+    /*builder->CreateCall(ee_print_syscall, {
         llvm::ConstantInt::get(builder->getInt64Ty(),
         reinterpret_cast<uint64_t>(core)),
             builder->getInt32(current_pc),
             syscall_nr
-    });
+    });*/
 
     ee_jit_level1_exception(core, CAUSE_SYSCALL, current_pc);
 }

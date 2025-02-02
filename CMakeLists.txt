@@ -19,6 +19,9 @@ find_package(LLVM REQUIRED CONFIG)
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
+find_package(GLEW REQUIRED) # Add this line to find GLEW
+include_directories(${GLEW_INCLUDE_DIRS}) # Include GLEW headers
+
 add_executable(neo2)
 
 add_subdirectory(src)
@@ -32,4 +35,5 @@ target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/argparse/
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/imgui_club/imgui_memory_editor)
 
 target_link_libraries(neo2 PRIVATE LLVM)
+target_link_libraries(neo2 PRIVATE ${GLEW_LIBRARIES}) # Link GLEW library
 target_link_options(neo2 PRIVATE -Wl,--export-dynamic)
