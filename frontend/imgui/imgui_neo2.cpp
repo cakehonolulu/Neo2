@@ -388,20 +388,13 @@ void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
         if (ImGui::BeginTabItem("FRAME_1")) {
             ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
 
-            uint64_t scissor = gs.gs_registers[0x40]; // SCISSOR_1
-            uint32_t x0 = scissor & 0x7FF;
-            uint32_t x1 = (scissor >> 16) & 0x7FF;
-            uint32_t y0 = (scissor >> 32) & 0x7FF;
-            uint32_t y1 = (scissor >> 48) & 0x7FF;
-
-            ImGui::Text("Scissor X0: %d, X1: %d, Y0: %d, Y1: %d", x0, x1, y0, y1);
 
             float tex_w, tex_h;
             if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
                 if (vram_texture) {
                     SDL_DestroyTexture(vram_texture);
                 }
-                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.width, gs.framebuffer1.height);
+                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
                 SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
             }
 
@@ -413,8 +406,8 @@ void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
             uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
 
             for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
-                for (uint32_t x = 0; x < gs.framebuffer1.width; ++x) {
-                    uint32_t vram_index = y * gs.framebuffer1.width + x;
+                for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
+                    uint32_t vram_index = y * gs.framebuffer1.fbw + x;
                     dst[vram_index] = src[vram_index];
                 }
             }
