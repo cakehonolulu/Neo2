@@ -380,6 +380,96 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
     ImGui::End();
 }
 
+
+void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
+    ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    if (ImGui::BeginTabBar("FramebufferTabs")) {
+        if (ImGui::BeginTabItem("FRAME_1")) {
+            ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
+
+            uint64_t scissor = gs.gs_registers[0x40]; // SCISSOR_1
+            uint32_t x0 = scissor & 0x7FF;
+            uint32_t x1 = (scissor >> 16) & 0x7FF;
+            uint32_t y0 = (scissor >> 32) & 0x7FF;
+            uint32_t y1 = (scissor >> 48) & 0x7FF;
+
+            ImGui::Text("Scissor X0: %d, X1: %d, Y0: %d, Y1: %d", x0, x1, y0, y1);
+
+            float tex_w, tex_h;
+            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
+                if (vram_texture) {
+                    SDL_DestroyTexture(vram_texture);
+                }
+                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.width, gs.framebuffer1.height);
+                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+            }
+
+            void* pixels;
+            int pitch;
+            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+            uint32_t* dst = static_cast<uint32_t*>(pixels);
+            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+            for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
+                for (uint32_t x = 0; x < gs.framebuffer1.width; ++x) {
+                    uint32_t vram_index = y * gs.framebuffer1.width + x;
+                    dst[vram_index] = src[vram_index];
+                }
+            }
+
+            SDL_UnlockTexture(vram_texture);
+
+            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("FRAME_2")) {
+            ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
+
+            float tex_w, tex_h;
+            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
+                if (vram_texture) {
+                    SDL_DestroyTexture(vram_texture);
+                }
+                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
+                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+            }
+
+            void* pixels;
+            int pitch;
+            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+            uint32_t* dst = static_cast<uint32_t*>(pixels);
+            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+            for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
+                for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
+                    uint32_t vram_index = y * gs.framebuffer2.width + x;
+                    dst[vram_index] = src[vram_index];
+                }
+            }
+
+            SDL_UnlockTexture(vram_texture);
+
+            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::End();
+}
+
+#include "scheduler.hh"
+#include "constants.hh"
+
 void ImGui_Neo2::run(int argc, char **argv)
 {
     // Main loop
@@ -402,6 +492,8 @@ void ImGui_Neo2::run(int argc, char **argv)
     static bool show_ram_view = false;
 
     static bool show_textures = false;
+
+    static bool show_framebuffer = false;
 
     argparse::ArgumentParser program("Neo2");
 
@@ -485,7 +577,7 @@ void ImGui_Neo2::run(int argc, char **argv)
     }
 
     // Create window with SDL_Renderer graphics context
-    Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
+    Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     SDL_Window* window = SDL_CreateWindow("Neo2 - ImGui + SDL3", 1280, 720, window_flags);
     if (window == nullptr)
     {
@@ -531,6 +623,32 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     this->ee.set_backend(use_jit_ee ? EmulationMode::JIT : EmulationMode::Interpreter);
     this->iop.set_backend(use_jit_iop ? EmulationMode::JIT : EmulationMode::Interpreter);
+
+    Scheduler scheduler;
+
+    // Add tasks to the scheduler
+    scheduler.add_task([this](uint64_t cycles) {
+        this->ee.execute_cycles(cycles, nullptr);
+    }, 1);  // ~4915200/5 cycles
+
+    // Simulate GS vblank once per frame.
+    scheduler.add_task([this](uint64_t cycles) {
+        this->bus.gs.simul_vblank();
+    }, 10000000);  // 4,915,200 cycles*/
+    // Simulate GS vblank once per frame.
+    scheduler.add_task([this](uint64_t cycles) {
+        this->bus.gs.untog_vblank();
+    }, 10000105);  // 4,915,200 cycles*/
+
+    /*// Batch draw calls once per frame.
+    scheduler.add_task([this](uint64_t cycles) {
+        this->bus.gs.batch_draw();
+    }, 1000);  // 4,915,200 cycles
+
+    // Execute DMA step very frequently (every 1000 cycles).
+    scheduler.add_task([this](uint64_t cycles) {
+        this->bus.dmac.dma_step();
+    }, 2500);  // every 1000 cycles*/
 
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -589,6 +707,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 ImGui::MenuItem("Show Bus Debug", nullptr, &show_bus_debug);
                 ImGui::MenuItem("Show RAM View", nullptr, &show_ram_view);
                 ImGui::MenuItem("Show Textures", nullptr, &show_textures);
+                ImGui::MenuItem("Show Framebuffer", nullptr, &show_framebuffer);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -600,6 +719,13 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
                 ImGui::EndMenu();
             }
+            // Add a button to call simul_vblank
+    if (ImGui::Button("Simulate VBlank")) {
+        this->bus.gs.simul_vblank();
+    }
+    if (ImGui::Button("Untog VBlank")) {
+        this->bus.gs.untog_vblank();
+    }
             ImGui::EndMainMenuBar();
         }
 
@@ -657,6 +783,10 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         if (show_textures) {
             render_textures(renderer, bus.gs);
+        }
+
+        if (show_framebuffer) {
+            render_framebuffer(renderer, bus.gs);
         }
 
         // Handle the file dialog for loading BIOS
@@ -756,8 +886,11 @@ void ImGui_Neo2::run(int argc, char **argv)
                     stop_requested = false; // Reset stop flag
 
                     // Start the emulation loop in separate threads
-                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color]() {
+                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color, &scheduler]() {
                         while (!stop_requested) {
+                            // Tick the scheduler
+                            scheduler.tick(); // Tick the scheduler with 1000 cycles
+
                             // Call this before the step
                             /*if (client_fd == -1)
                             {
@@ -769,7 +902,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                             }
 
                             if (!compareRegistersWithPCSX2(&ee))*/
-                            this->ee.run(&breakpoints);
+                            //this->ee.run(&breakpoints);
                         }
 
                         // After breakpoint or stopping, reset the status

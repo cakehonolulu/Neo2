@@ -208,3 +208,11 @@ void EE::load_elf(const std::string& elf_path) {
 void EE::set_elf_state(bool state) {
     jit->ee_jit_set_run_elf(state);
 }
+
+void EE::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints) {
+    if (jit) {
+        jit->execute_cycles(cycle_limit, breakpoints);
+    } else {
+        Logger::error("JIT is not initialized");
+    }
+}

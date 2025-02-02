@@ -198,6 +198,15 @@ void EEJIT::run(Breakpoint *breakpoints) {
     core->registers[0].u128 = 0;
 }
 
+void EEJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints) {
+    remaining_cycles = cycle_limit;
+
+    while (remaining_cycles > 0 && !Neo2::is_aborted()) {
+        execute_opcode(breakpoints);
+        core->registers[0].u128 = 0;
+    }
+}
+
 void EEJIT::execute_opcode(Breakpoint *breakpoints) {
     // Try to find existing block
     CompiledBlock* block = find_block(core->pc);
@@ -219,7 +228,14 @@ void EEJIT::execute_opcode(Breakpoint *breakpoints) {
     // Execute block
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
-    core->cycles += block->cycles;
+    uint64_t block_cycles = block->cycles;
+
+    if (block_cycles > remaining_cycles) {
+        block_cycles = remaining_cycles;
+    }
+
+    core->cycles += block_cycles;
+    remaining_cycles -= block_cycles;
     exec_fn();
 }
 

@@ -139,6 +139,8 @@ class EE : public CPU
     void load_elf(const std::string& elf_path);
     void set_elf_state(bool state);
 
+    void execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints);
+
   private:
     std::unique_ptr<EEJIT> jit;
 };

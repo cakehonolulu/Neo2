@@ -4,6 +4,29 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <queue>
+
+// New structures for Framebuffer and vertex buffer
+struct Framebuffer {
+    uint32_t* data;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint32_t fbw;
+};
+
+struct Vertex {
+    float x, y, z;
+    uint32_t color;
+    float u, v;
+};
+
+enum class PrimitiveType {
+    Point,
+    Line,
+    Triangle = 3,
+    Sprite = 6
+};
 
 class GS {
 public:
@@ -49,11 +72,13 @@ public:
     void write(uint32_t address, uint64_t value);
 
     void simul_vblank();
+    void untog_vblank();
+
 
     // Method to handle incoming GIF data
     void write_gif_data(uint64_t data);
     void write_internal_reg(uint8_t reg, uint64_t data);
-    void write_packed_gif_data(uint8_t reg, uint128_t data);
+    void write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q);
 
     void set_bitbltbuf(uint64_t value);
     void set_trxpos(uint64_t value);
@@ -72,6 +97,26 @@ public:
     // Texture tracking
     void upload_texture(const Texture& texture);
     const std::vector<Texture>& get_textures() const;
+
+    // New methods for handling PRIM selection and rendering
+    void handle_prim_selection(uint64_t prim);
+    void draw_primitive();
+    void draw_point(const std::vector<Vertex>& vertices);
+    void draw_line(const std::vector<Vertex>& vertices);
+    void draw_triangle(const std::vector<Vertex>& vertices);
+    void draw_sprite(const std::vector<Vertex>& vertices);
+
+    // Methods for handling framebuffer changes
+    void update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uint32_t format);
+
+    Framebuffer framebuffer1;
+    Framebuffer framebuffer2;
+
+    // Add the add_vertex method
+    void add_vertex(uint64_t data, bool vertex_kick);
+    void batch_draw();
+
+    void dump_first_non_empty_queue(const std::string& filename);
 
 private:
     uint64_t bitbltbuf = 0;
@@ -109,4 +154,12 @@ private:
     uint32_t destination_y = 0;
 
     std::vector<Texture> textures; // List of uploaded textures
+
+    std::queue<std::pair<PrimitiveType, std::vector<Vertex>>> prim_queue;
+    std::vector<Vertex> vertex_buffer; // Declare vertex_buffer
+    uint64_t current_prim;
+    uint32_t vertex_count;
+
+    uint16_t interpolate(int32_t x, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
+    void draw_pixel(int32_t x, int32_t y, uint32_t color, uint32_t z, bool alpha_blend);
 };

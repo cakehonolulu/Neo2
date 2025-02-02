@@ -20,4 +20,5 @@ target_sources(neo2
         ee/vu/vu.cc
         ee/vif/vif.cc
         ipu/ipu.cc
-        log/log.cpp)
+        log/log.cpp
+        scheduler.cc)
