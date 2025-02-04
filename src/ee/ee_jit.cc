@@ -179,7 +179,7 @@ void EEJIT::step() {
     }
     exec_type = RunType::Step;
     single_instruction_mode = true;
-    execute_opcode(nullptr);
+    execute_block(nullptr);
     core->registers[0].u128 = 0;
     single_instruction_mode = false;
 }
@@ -194,20 +194,19 @@ void EEJIT::run(Breakpoint *breakpoints) {
     
     exec_type = RunType::Step;
     single_instruction_mode = false;
-    if (!Neo2::is_aborted()) execute_opcode(breakpoints);
+    if (!Neo2::is_aborted()) execute_block(breakpoints);
     core->registers[0].u128 = 0;
 }
 
 void EEJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints) {
-    remaining_cycles = cycle_limit;
-
-    while (remaining_cycles > 0 && !Neo2::is_aborted()) {
-        execute_opcode(breakpoints);
+    uint64_t current_cycles = 0;
+    while (cycle_limit > current_cycles && !Neo2::is_aborted()) {
+        current_cycles += execute_block(breakpoints);
         core->registers[0].u128 = 0;
     }
 }
 
-void EEJIT::execute_opcode(Breakpoint *breakpoints) {
+uint32_t EEJIT::execute_block(Breakpoint *breakpoints) {
     // Try to find existing block
     CompiledBlock* block = find_block(core->pc);
 
@@ -215,7 +214,8 @@ void EEJIT::execute_opcode(Breakpoint *breakpoints) {
         // Compile a new block if not found
         block = compile_block(core->pc, breakpoints);
         if (!block) {
-            return;
+            Logger::error("Error compiling block!");
+            return Neo2::exit(1, Neo2::Subsystem::EE);
         }
 
         // Add to cache
@@ -228,15 +228,9 @@ void EEJIT::execute_opcode(Breakpoint *breakpoints) {
     // Execute block
     block->last_used = ++execution_count;
     auto exec_fn = (int (*)())block->code_ptr;
-    uint64_t block_cycles = block->cycles;
-
-    if (block_cycles > remaining_cycles) {
-        block_cycles = remaining_cycles;
-    }
-
-    core->cycles += block_cycles;
-    remaining_cycles -= block_cycles;
+    core->cycles += block->cycles;
     exec_fn();
+    return block->cycles;
 }
 
 CompiledBlock* EEJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints) {

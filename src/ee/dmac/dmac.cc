@@ -48,6 +48,7 @@ void EE_DMAC::write_register(uint32_t address, uint32_t value) {
             case 0x00: register_name = "CHCR";
             {
                 channel.CHCR = value;
+                dma_step();
             }
             break;
             case 0x10: register_name = "MADR"; channel.MADR = value; break;
@@ -95,7 +96,6 @@ uint32_t EE_DMAC::read_register(uint32_t address) {
             case 0x00: register_name = "CHCR";
                 {
                     value = channel.CHCR;
-                    dma_step();
                 }
                 break;
             case 0x10: register_name = "MADR"; value = channel.MADR; break;

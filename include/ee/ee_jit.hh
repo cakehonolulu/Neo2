@@ -90,7 +90,7 @@ public:
     void step();
     void run(Breakpoint *breakpoints);
 
-    void execute_opcode(Breakpoint *breakpoints);
+    uint32_t execute_block(Breakpoint *breakpoints);
     CompiledBlock* compile_block(uint32_t start_pc, Breakpoint *breakpoints);
 
     // New method to execute a limited number of cycles

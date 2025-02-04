@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include <queue>
-
+#include <mutex>
 // New structures for Framebuffer and vertex buffer
 struct Framebuffer {
     uint32_t* data;
@@ -25,7 +25,15 @@ enum class PrimitiveType {
     Point,
     Line,
     Triangle = 3,
-    Sprite = 6
+    Sprite = 6,
+    None = 0xF
+};
+
+static const char* prims[] = { "", "", "", "Triangle", "", "", "Sprite"};
+
+struct Primitive {
+    PrimitiveType type;
+    std::vector<Vertex> vertices;
 };
 
 class GS {
@@ -116,7 +124,13 @@ public:
     void add_vertex(uint64_t data, bool vertex_kick);
     void batch_draw();
 
+    mutable std::mutex prim_queue_mutex;
     void dump_first_non_empty_queue(const std::string& filename);
+    
+    std::vector<Primitive> get_queued_primitives() const {
+        std::lock_guard<std::mutex> lock(prim_queue_mutex);
+        return std::vector<Primitive>(prim_queue.begin(), prim_queue.end());
+    }
 
 private:
     uint64_t bitbltbuf = 0;
@@ -155,7 +169,10 @@ private:
 
     std::vector<Texture> textures; // List of uploaded textures
 
-    std::queue<std::pair<PrimitiveType, std::vector<Vertex>>> prim_queue;
+    std::deque<Primitive> prim_queue;
+
+    PrimitiveType current_primitive = PrimitiveType::None;
+
     std::vector<Vertex> vertex_buffer; // Declare vertex_buffer
     uint64_t current_prim;
     uint32_t vertex_count;
