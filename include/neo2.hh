@@ -54,6 +54,9 @@ class Neo2 {
     IOP iop;
     Bus bus;
     Disassembler disassembler;
+    
+    bool frame_ended = false;
+
 
   private:
     static inline bool aborted = false;

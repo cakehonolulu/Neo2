@@ -257,7 +257,6 @@ void log_instruction(EE* cpu) {
 SDL_Texture* vram_texture = nullptr;
 float zoom_factor = 1.0f;
 
-
 SDL_Texture* create_texture_from_vram(SDL_Renderer* renderer, GS& gs, const GS::Texture& texture) {
     int tex_h = texture.height * 2;
     SDL_Texture* sdl_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, texture.width, tex_h);
@@ -280,7 +279,6 @@ SDL_Texture* create_texture_from_vram(SDL_Renderer* renderer, GS& gs, const GS::
     SDL_UnlockTexture(sdl_texture);
     return sdl_texture;
 }
-
 
 void render_textures(SDL_Renderer* renderer, GS& gs) {
     ImGui::Begin("Textures", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
@@ -380,7 +378,6 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
     ImGui::End();
 }
 
-
 void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
     ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
@@ -460,11 +457,190 @@ void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
     ImGui::End();
 }
 
+struct MyRect {
+    ImVec2 Min;
+    ImVec2 Max;
+};
+
+// Compute a bounding rectangle for a set of vertices.
+MyRect compute_bounding_rect(const std::vector<Vertex>& vertices) {
+    float min_x = FLT_MAX, min_y = FLT_MAX;
+    float max_x = -FLT_MAX, max_y = -FLT_MAX;
+    for (const Vertex& v : vertices) {
+        if (v.x < min_x) min_x = v.x;
+        if (v.y < min_y) min_y = v.y;
+        if (v.x > max_x) max_x = v.x;
+        if (v.y > max_y) max_y = v.y;
+    }
+    return MyRect{ImVec2(min_x, min_y), ImVec2(max_x, max_y)};
+}
+
+// Helper to compute an average color from the vertices (assumes color stored as 0xRRGGBBAA).
+ImVec4 compute_average_color(const std::vector<Vertex>& vertices) {
+    uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+    for (const Vertex& v : vertices) {
+        uint8_t r = (v.color >> 24) & 0xFF;
+        uint8_t g = (v.color >> 16) & 0xFF;
+        uint8_t b = (v.color >> 8) & 0xFF;
+        uint8_t a = v.color & 0xFF;
+        sumR += r;
+        sumG += g;
+        sumB += b;
+        sumA += a;
+    }
+    size_t count = vertices.size();
+    return ImVec4(
+        static_cast<float>(sumR) / (count * 255.0f),
+        static_cast<float>(sumG) / (count * 255.0f),
+        static_cast<float>(sumB) / (count * 255.0f),
+        static_cast<float>(sumA) / (count * 255.0f)
+    );
+}
+
+// Render the primitive viewer window, including a preview with framebuffer info.
+void render_primitive_viewer(GS& gs) {
+    ImGui::Begin("Primitive Viewer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    // Retrieve a copy of the primitives.
+    std::vector<Primitive> primitives = gs.get_queued_primitives();
+
+    ImGui::Text("Queued Primitives: %zu", primitives.size());
+    ImGui::Separator();
+
+    // Display some framebuffer info.
+    ImGui::Text("Framebuffer 1: %dx%d, Format: %d, FBW: %d", 
+                gs.framebuffer1.width, gs.framebuffer1.height, 
+                gs.framebuffer1.format, gs.framebuffer1.fbw);
+    ImGui::Separator();
+
+    // Retrieve scissor values from the GS registers (assumed to be in SCISSOR_1).
+    uint64_t scissor = gs.gs_registers[0x40];
+    int scax0 = scissor & 0x7ff;
+    int scax1 = (scissor >> 16) & 0x7ff;
+    int scay0 = (scissor >> 32) & 0x7ff;
+    int scay1 = (scissor >> 48) & 0x7ff;
+
+    for (size_t i = 0; i < primitives.size(); ++i) {
+        const Primitive& prim = primitives[i];
+
+        std::string prim_type_str;
+        switch (prim.type) {
+            case PrimitiveType::Point:      prim_type_str = "Point"; break;
+            case PrimitiveType::Line:       prim_type_str = "Line"; break;
+            case PrimitiveType::Triangle:   prim_type_str = "Triangle"; break;
+            case PrimitiveType::Sprite:     prim_type_str = "Sprite"; break;
+            default:                        prim_type_str = "Unknown"; break;
+        }
+
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::CollapsingHeader((prim_type_str + " #" + std::to_string(i)).c_str())) {
+            ImGui::Text("Vertex Count: %zu", prim.vertices.size());
+
+            ImVec4 avg_color = compute_average_color(prim.vertices);
+            ImGui::ColorButton("Color", avg_color);
+
+            for (size_t v = 0; v < prim.vertices.size() && v < 10; ++v) {
+                const Vertex& vert = prim.vertices[v];
+                std::ostringstream oss;
+                oss << "V" << v << ": ("
+                    << std::fixed << std::setprecision(1)
+                    << vert.x << ", " << vert.y << ", " << vert.z << ")"
+                    << " Color: 0x" << std::hex << std::setw(8) << std::setfill('0') << vert.color;
+                ImGui::Text("%s", oss.str().c_str());
+            }
+
+            // *** Dynamic Preview Area ***
+            float fb_width = static_cast<float>(gs.framebuffer1.width);
+            float fb_height = static_cast<float>(gs.framebuffer1.height);
+            if (fb_width > 0 && fb_height > 0) {
+                float available_width = ImGui::GetContentRegionAvail().x;
+
+                // Scale to fit the available width while maintaining aspect ratio
+                float scale = available_width / fb_width;
+                float preview_w = available_width;
+                float preview_h = fb_height * scale;
+
+                // Limit preview height to prevent excessive stretching
+                if (preview_h > 400.0f) { // Arbitrary max height to avoid oversized previews
+                    preview_h = 400.0f;
+                    scale = preview_h / fb_height;
+                }
+
+                // Begin child window for the preview
+                ImGui::Text("Preview:");
+                ImGui::BeginChild("PreviewCanvas", ImVec2(preview_w, preview_h), true);
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
+
+                // ** Centered Framebuffer **
+                float fb_draw_w = fb_width * scale;
+                float fb_draw_h = fb_height * scale;
+                float fb_offset_x = canvas_p0.x + (preview_w - fb_draw_w) * 0.5f;
+                float fb_offset_y = canvas_p0.y + (preview_h - fb_draw_h) * 0.5f;
+
+                // Draw a dark background
+                draw_list->AddRectFilled(canvas_p0, 
+                                         ImVec2(canvas_p0.x + preview_w, canvas_p0.y + preview_h), 
+                                         IM_COL32(50, 50, 50, 255));
+
+                // Draw the framebuffer boundary (Red)
+                draw_list->AddRect(ImVec2(fb_offset_x, fb_offset_y),
+                                   ImVec2(fb_offset_x + fb_draw_w, fb_offset_y + fb_draw_h),
+                                   IM_COL32(255, 0, 0, 255), 0.0f, 0, 3.0f);
+
+                // Debug Info
+                ImGui::Text("FB Pos: (%.1f, %.1f) Size: (%.1f x %.1f)", 
+                            fb_offset_x, fb_offset_y, fb_draw_w, fb_draw_h);
+
+                // ** Transform Function **
+                auto transform = [=](const ImVec2& pos) -> ImVec2 {
+                    return ImVec2(pos.x * scale + fb_offset_x, pos.y * scale + fb_offset_y);
+                };
+
+                // ** Draw Primitives with Scissor Test **
+                if (prim.type == PrimitiveType::Triangle && prim.vertices.size() >= 3) {
+                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
+                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
+                    ImVec2 p2 = transform(ImVec2(prim.vertices[2].x, prim.vertices[2].y));
+
+
+                    draw_list->AddTriangle(p0, p1, p2, IM_COL32(255, 255, 255, 255), 2.0f);
+                }
+                else if (prim.type == PrimitiveType::Sprite && prim.vertices.size() >= 2) {
+                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
+                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
+
+                    draw_list->AddRect(p0, p1, IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
+                }
+                else if (prim.type == PrimitiveType::Line && prim.vertices.size() >= 2) {
+                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
+                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
+
+                   
+                    draw_list->AddLine(p0, p1, IM_COL32(255, 255, 255, 255), 2.0f);
+                }
+                else if (prim.type == PrimitiveType::Point && !prim.vertices.empty()) {
+                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
+
+                    draw_list->AddCircleFilled(p0, 3.0f, IM_COL32(255, 255, 255, 255));
+                }
+                ImGui::EndChild();
+            }
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::End();
+}
+
+
 #include "scheduler.hh"
 #include "constants.hh"
 
 void ImGui_Neo2::run(int argc, char **argv)
 {
+    int vs = 0;
+
     // Main loop
     bool done = false;
     static bool suppress_exit_notification = false;
@@ -619,29 +795,19 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     Scheduler scheduler;
 
-    // Add tasks to the scheduler
-    scheduler.add_task([this](uint64_t cycles) {
-        this->ee.execute_cycles(cycles, nullptr);
-    }, 1);  // ~4915200/5 cycles
-
-    // Simulate GS vblank once per frame.
-    scheduler.add_task([this](uint64_t cycles) {
+    int gs_vblank_event_id = scheduler.register_function([this](uint64_t cycles) {
         this->bus.gs.simul_vblank();
-    }, 10000000);  // 4,915,200 cycles*/
-    // Simulate GS vblank once per frame.
-    scheduler.add_task([this](uint64_t cycles) {
+    });
+
+    int gs_vblank_task_id = scheduler.register_function([this, &vs, &scheduler, &gs_vblank_event_id](uint64_t cycles) {
+        scheduler.add_event(gs_vblank_event_id, GS_VBLANK_DELAY, "VBlank Delay");
+    });
+
+    int vblank_end_id = scheduler.register_function([this](uint64_t cycles) {
         this->bus.gs.untog_vblank();
-    }, 10000105);  // 4,915,200 cycles*/
-
-    /*// Batch draw calls once per frame.
-    scheduler.add_task([this](uint64_t cycles) {
         this->bus.gs.batch_draw();
-    }, 1000);  // 4,915,200 cycles
-
-    // Execute DMA step very frequently (every 1000 cycles).
-    scheduler.add_task([this](uint64_t cycles) {
-        this->bus.dmac.dma_step();
-    }, 2500);  // every 1000 cycles*/
+        frame_ended = true;
+    });
 
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -795,6 +961,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
 		imgui_logger->render();
+        render_primitive_viewer(bus.gs);
 
         if (Neo2::is_aborted() && !suppress_exit_notification) {
             // Set window size and open popup
@@ -879,23 +1046,26 @@ void ImGui_Neo2::run(int argc, char **argv)
                     stop_requested = false; // Reset stop flag
 
                     // Start the emulation loop in separate threads
-                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color, &scheduler]() {
+                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color, &scheduler, &gs_vblank_task_id, &vblank_end_id]() {
                         while (!stop_requested) {
-                            // Tick the scheduler
-                            scheduler.tick(); // Tick the scheduler with 1000 cycles
-
-                            // Call this before the step
-                            /*if (client_fd == -1)
+                            frame_ended = false;
+                            scheduler.add_event(gs_vblank_task_id, VBLANK_START_CYCLES, "VBlank Start");
+                            scheduler.add_event(vblank_end_id, PS2_CYCLES_PER_FRAME, "VBlank End");
+                            
+                            while (!frame_ended && !stop_requested)
                             {
-                                memset(&ee.cop0_registers, 0, sizeof(ee.cop0_registers));
-                                ee.cop0_registers[12] = 0x70400004;
-                                ee.cop0_registers[15] = 0x2E20;
-                                ee.cop0_registers[16] = 0x440;
-                                connectToPCSX2();
-                            }
+                                // Calculate run cycles
+                                unsigned int ee_cycles = scheduler.calculate_run_cycles();
 
-                            if (!compareRegistersWithPCSX2(&ee))*/
-                            //this->ee.run(&breakpoints);
+                                // Update cycle counts
+                                if (!stop_requested) scheduler.update_cycle_counts();
+
+                                // Execute EE cycles
+                                if (!stop_requested) this->ee.execute_cycles(ee_cycles, nullptr);
+
+                                // Execute tasks
+                                if (!stop_requested) scheduler.process_events();
+                            }
                         }
 
                         // After breakpoint or stopping, reset the status

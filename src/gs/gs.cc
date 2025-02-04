@@ -81,6 +81,14 @@ void GS::write(uint32_t address, uint64_t value) {
         Neo2::exit(1, Neo2::Subsystem::GS);
     }
 
+    if (index == 15) {
+        uint64_t old_value = gs_privileged_registers[index];
+        uint64_t modified_bits = old_value ^ value;
+        if (modified_bits & (1 << 3)) { // Check if bit 3 is being modified
+            value &= ~(1 << 3); // Clear bit 3
+        }
+    }
+
     //Logger::info("GS register write to " + std::string(REGISTER_NAMES[index]) + " with value 0x" + format("{:08X}", value));
     gs_privileged_registers[index] = value;
 }
@@ -100,10 +108,13 @@ void GS::untog_vblank() {
 void GS::write_internal_reg(uint8_t reg, uint64_t data) {
     switch (reg) {
         case 0x00: // PRIM
-            //Logger::info("GS: Writing to PRIM");
+        {
+            //Logger::info("GIF: PRIM register 0x" + format("{:016X}", data.u64[0]));
             gs_registers[0x00] = data;
             handle_prim_selection(data);
+            //Logger::info("PRIM register 0x" + format("{:016X}", data.u64[0]));
             break;
+        }
         case 0x01: // RGBAQ
         {
             //Logger::info("GS: Writing to RGBAQ");
@@ -322,10 +333,13 @@ void GS::write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q) {
     // Handle the incoming GIF data and write to appropriate GS registers
     switch (reg) {
         case 0x0: // PRIM
+        {
             //Logger::info("GIF: PRIM register 0x" + format("{:016X}", data.u64[0]));
-            gs_registers[0] = data.u64[0] & 0x3ff;
+            gs_registers[0x00] = data.u64[0] & 0x3ff;
+            handle_prim_selection(data.u64[0] & 0x3ff);
             //Logger::info("PRIM register 0x" + format("{:016X}", data.u64[0]));
             break;
+        }
         case 0x1: // RGBAQ
         {
             //Logger::info("GIF: RGBAQ register 0x" + format("{:016X}", data.u64[0]));
@@ -363,6 +377,7 @@ void GS::write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q) {
             //x, x, y, y, z, z, v);
             //printf(BOLDRED "data: %016lX" RESET "\n", v);
             add_vertex(v, disable_drawing ? false : true);
+            //exit(1);
             gs_registers[disable_drawing ? 0x0C : 0x04] = v;
             break;
         }
@@ -421,6 +436,17 @@ void GS::write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q) {
 void GS::add_vertex(uint64_t data, bool vertex_kick) {
     //printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
 
+    PrimitiveType prim_type_ = static_cast<PrimitiveType>(current_prim & 0x7);
+
+    if (current_primitive != prim_type_)
+    {
+        current_primitive = prim_type_;
+
+        vertex_buffer.clear();
+        vertex_count = 0;
+        batch_draw();
+    }
+
     int16_t x_fixed = static_cast<int16_t>((data >> 0) & 0xFFFF);
     int16_t y_fixed = static_cast<int16_t>((data >> 16) & 0xFFFF);
     //printf(BOLDBLUE "add_vertex -> x_fixed: %04X, y_fixed: %04X" RESET" \n", x_fixed, y_fixed);
@@ -446,7 +472,7 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
     uint8_t r = (rgbaq >> 16) & 0xFF;
     uint8_t a = (rgbaq >> 24) & 0xFF;
     uint32_t color = (r << 24) | (g << 16) | (b << 8) | a;
-    //printf(BOLDBLUE "add_vertex: R: %d, G: %d, B: %d, x: %d, y: %d" RESET" \n", r, g, b, x, y);
+    //printf(BOLDBLUE "add_vertex: R: %d, G: %d, B: %d, x: %.0f, y: %.0f" RESET" \n", r, g, b, x, y);
 
     //printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
     float u = static_cast<float>(gs_registers[0x02]);
@@ -460,6 +486,7 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
     uint32_t prim_type = current_prim & 0x7;
     bool should_draw = false;
 
+
     if (vertex_kick)
     {
         switch (prim_type) {
@@ -471,9 +498,11 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
                 break;
             case 3: // Triangle
                 should_draw = (vertex_count >= 3);
+                //if (should_draw) printf("Should draw triangle now, vertex's: %d\n", vertex_count);
                 break;
             case 6: // Sprite
                 should_draw = (vertex_count >= 2);
+                //if (should_draw) printf("Should draw sprite now, vertex's: %d\n", vertex_count);
                 break;
             default:
                 Logger::error("Unsupported primitive type: " + std::to_string(prim_type));
@@ -482,8 +511,16 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
 
         if (should_draw) {
             PrimitiveType prim_type = static_cast<PrimitiveType>(current_prim & 0x7);
-            prim_queue.push({prim_type, vertex_buffer});
-            batch_draw();
+
+            Primitive prim;
+            prim.type = static_cast<PrimitiveType>(prim_type);
+            prim.vertices = vertex_buffer;  // Copy by value.
+            {
+                std::lock_guard<std::mutex> lock(prim_queue_mutex);
+                prim_queue.push_back(prim);   
+            }
+            vertex_buffer.clear();
+            vertex_count = 0;
         }
     }
 }
@@ -876,10 +913,6 @@ void GS::draw_sprite(const std::vector<Vertex>& vertices) {
     // Loop over each pixel in the bounding rectangle.
     for (int y = minY; y <= maxY; ++y) {
         for (int x = minX; x <= maxX; ++x) {
-            if (x < 0 || x >= static_cast<int>(framebuffer1.width) ||
-                y < 0 || y >= static_cast<int>(framebuffer1.height)) {
-                continue;
-            }
 
             // Compute the z–buffer index.
             uint32_t z_index = zbuf_base + y * framebuffer1.width + x;
@@ -905,6 +938,7 @@ void GS::draw_sprite(const std::vector<Vertex>& vertices) {
         }
     }
 }
+
 
 void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uint32_t format) {
     int pmode_idx = 0; // Index for PMODE register
@@ -956,50 +990,28 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
 
 int num = 0;
 void GS::batch_draw() {
-    while (!prim_queue.empty()) {
-        auto& [prim_type, vertices] = prim_queue.front();
-        switch (prim_type) {
-            case PrimitiveType::Triangle:
-                draw_triangle(vertices);
-                break;
-            case PrimitiveType::Sprite:
-                draw_sprite(vertices);
-                break;
-            default:
-            {
-                Logger::error("Unsupported primitive type " + format("{:d}", static_cast<uint32_t>(prim_type)));
-                Neo2::exit(1, Neo2::Subsystem::GS);
-                break;
+    bool executed = false;
+    {
+        std::lock_guard<std::mutex> lock(prim_queue_mutex);
+        for (const Primitive& prim : prim_queue) {
+            executed = true;
+            switch (prim.type) {
+                case PrimitiveType::Triangle:
+                    draw_triangle(prim.vertices);
+                    break;
+                case PrimitiveType::Sprite:
+                    draw_sprite(prim.vertices);
+                    break;
+                default:
+                    Logger::error("Unsupported primitive type in batch_draw");
+                    Neo2::exit(1, Neo2::Subsystem::GS);
+                    break;
             }
         }
-        prim_queue.pop();
+        prim_queue.clear();
     }
-
-    vertex_buffer.clear();
-    vertex_count = 0;
-}
-
-void GS::dump_first_non_empty_queue(const std::string& filename) {
-    std::ofstream outfile(filename);
-
-    if (!prim_queue.empty()) {
-        while (!prim_queue.empty()) {
-            auto& [prim_type, vertices] = prim_queue.front();
-            if (prim_type == PrimitiveType::Sprite) {
-                outfile << "Primitive Type: Sprite\n";
-            } else if (prim_type == PrimitiveType::Triangle) {
-                outfile << "Primitive Type: Triangle\n";
-            }
-            outfile << "Vertices:\n";
-            for (const auto& vertex : vertices) {
-                outfile << "  x: " << vertex.x << ", y: " << vertex.y << ", z: " << vertex.z
-                        << ", color: " << vertex.color << ", u: " << vertex.u << ", v: " << vertex.v << "\n";
-            }
-            prim_queue.pop();
-        }
-    } else {
-        outfile << "Queue is empty.\n";
+    if (executed) {
+        vertex_buffer.clear();
+        vertex_count = 0;
     }
-
-    outfile.close();
 }

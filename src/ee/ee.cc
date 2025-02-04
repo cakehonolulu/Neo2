@@ -211,6 +211,7 @@ void EE::set_elf_state(bool state) {
 
 void EE::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints) {
     if (jit) {
+        fflush(stdout);
         jit->execute_cycles(cycle_limit, breakpoints);
     } else {
         Logger::error("JIT is not initialized");
