@@ -6,8 +6,8 @@
 #include <vector>
 #include <queue>
 #include <mutex>
-// New structures for Framebuffer and vertex buffer
-struct Framebuffer {
+// New structures for GS_Framebuffer and vertex buffer
+struct GS_Framebuffer {
     uint32_t* data;
     uint32_t width;
     uint32_t height;
@@ -117,8 +117,8 @@ public:
     // Methods for handling framebuffer changes
     void update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uint32_t format);
 
-    Framebuffer framebuffer1;
-    Framebuffer framebuffer2;
+    GS_Framebuffer framebuffer1;
+    GS_Framebuffer framebuffer2;
 
     // Add the add_vertex method
     void add_vertex(uint64_t data, bool vertex_kick);

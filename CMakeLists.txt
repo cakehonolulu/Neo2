@@ -13,7 +13,7 @@ if (ASAN)
     add_link_options(-fsanitize=address,leak,undefined,pointer-compare,pointer-subtract)
 endif()
 
-add_compile_options(-g -Wall -Wextra -std=c++2b)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -std=c++2b")
 
 find_package(LLVM REQUIRED CONFIG)
 include_directories(${LLVM_INCLUDE_DIRS})

@@ -4,6 +4,13 @@ find_package(OpenGL REQUIRED)
 find_package(SDL3 REQUIRED)
 
 set(EXTERNAL_SOURCE_DIR ${PROJECT_SOURCE_DIR}/external)
+set(GLAD_SOURCE_DIR ${EXTERNAL_SOURCE_DIR}/glad)
+set(GLAD_INCLUDE_DIR ${CMAKE_BINARY_DIR}/glad/include)
+set(GLAD_LIB_DIR ${CMAKE_BINARY_DIR}/glad/lib)
+
+add_subdirectory("${GLAD_SOURCE_DIR}/cmake" glad_cmake)
+
+glad_add_library(glad API gl:core=3.3)
 
 # Add ImGui source files
 set(IMGUI_SOURCE_DIR ${EXTERNAL_SOURCE_DIR}/imgui)
@@ -32,10 +39,12 @@ target_sources(neo2
         imgui_neo2.cpp
         imgui_debug.cpp
         imgui_log.cpp
-        imgui_exit.cpp)
+        imgui_exit.cpp
+        framebuffer.cpp)
 
 # Add OpenGL, SDL2, and ImGui include files to compilation
 target_include_directories(neo2 PUBLIC
+        glad_gl_core_mx_33
         ${OPENGL_INCLUDE_DIRS}
         ${SDL3_INCLUDE_DIRS}
         ${IMGUI_SOURCE_DIR}
@@ -44,4 +53,4 @@ target_include_directories(neo2 PUBLIC
 )
 
 # Link the library to the main executable
-target_link_libraries(neo2 PRIVATE ${OPENGL_LIBRARIES} ${SDL3_LIBRARIES})
+target_link_libraries(neo2 PRIVATE ${OPENGL_LIBRARIES} ${SDL3_LIBRARIES} glad)
