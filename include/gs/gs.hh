@@ -6,6 +6,9 @@
 #include <vector>
 #include <queue>
 #include <mutex>
+#include <vertex.hh>
+#include <frontends/imgui/framebuffer.h>
+
 // New structures for GS_Framebuffer and vertex buffer
 struct GS_Framebuffer {
     uint32_t* data;
@@ -13,12 +16,6 @@ struct GS_Framebuffer {
     uint32_t height;
     uint32_t format;
     uint32_t fbw;
-};
-
-struct Vertex {
-    float x, y, z;
-    uint32_t color;
-    float u, v;
 };
 
 enum class PrimitiveType {
@@ -34,6 +31,11 @@ static const char* prims[] = { "", "", "", "Triangle", "", "", "Sprite"};
 struct Primitive {
     PrimitiveType type;
     std::vector<Vertex> vertices;
+};
+
+enum class RenderMode {
+    Software,
+    OpenGL
 };
 
 class GS {
@@ -75,6 +77,8 @@ public:
     GS();
     ~GS();
 
+    FrameBuffer opengl_;
+
     // Methods to handle register reads and writes
     uint64_t read(uint32_t address);
     void write(uint32_t address, uint64_t value);
@@ -108,11 +112,35 @@ public:
 
     // New methods for handling PRIM selection and rendering
     void handle_prim_selection(uint64_t prim);
-    void draw_primitive();
-    void draw_point(const std::vector<Vertex>& vertices);
-    void draw_line(const std::vector<Vertex>& vertices);
-    void draw_triangle(const std::vector<Vertex>& vertices);
-    void draw_sprite(const std::vector<Vertex>& vertices);
+
+    // Renderer methods.
+    // Software renderer.
+    void draw_triangle_software(const std::vector<Vertex>& vertices);
+    void draw_sprite_software(const std::vector<Vertex>& vertices);
+
+    // OpenGL renderer.
+    void draw_triangle_opengl(const std::vector<Vertex>& vertices);
+    void draw_sprite_opengl(const std::vector<Vertex>& vertices);
+
+    // Branching methods.
+    void draw_triangle(const std::vector<Vertex>& vertices) {
+        fflush(stdout);
+        if (render_mode == RenderMode::Software)
+            draw_triangle_software(vertices);
+        else
+            draw_triangle_opengl(vertices);
+    }
+
+    void draw_sprite(const std::vector<Vertex>& vertices) {
+        fflush(stdout);
+        if (render_mode == RenderMode::Software)
+            draw_sprite_software(vertices);
+        else
+            draw_sprite_opengl(vertices);
+    }
+
+    RenderMode render_mode = RenderMode::Software;
+    void set_render_mode(RenderMode mode) { render_mode = mode; }
 
     // Methods for handling framebuffer changes
     void update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uint32_t format);

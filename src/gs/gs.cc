@@ -15,7 +15,7 @@ using fmt::format;
 #include <cstring>
 #include <algorithm>
 
-GS::GS() {
+GS::GS() : opengl_(640, 480) {
     for (int i = 0; i < 19; ++i) {
         gs_privileged_registers[i] = 0;
     }
@@ -694,67 +694,7 @@ void GS::handle_prim_selection(uint64_t prim) {
     vertex_count = 0;
 }
 
-void GS::draw_primitive() {
-}
-
-void GS::draw_point(const std::vector<Vertex>& vertices) {
-    if (vertices.size() < 1)
-    {
-        Logger::error("Not enough vertices to draw point");
-        return;
-    }
-
-    const Vertex& v = vertices[0];
-    uint32_t x = static_cast<uint32_t>(v.x);
-    uint32_t y = static_cast<uint32_t>(v.y);
-
-    if (x < framebuffer1.width && y < framebuffer1.height) {
-        vram[y * framebuffer1.width + x] = v.color;
-    }
-}
-
-void GS::draw_line(const std::vector<Vertex>& vertices) {
-    if (vertices.size() < 2)
-    {
-        Logger::error("Not enough vertices to draw line");
-        return;
-    }
-
-    const Vertex& v1 = vertices[0];
-    const Vertex& v2 = vertices[1];
-
-    int x1 = static_cast<int>(v1.x);
-    int y1 = static_cast<int>(v1.y);
-    int x2 = static_cast<int>(v2.x);
-    int y2 = static_cast<int>(v2.y);
-
-    int dx = std::abs(x2 - x1);
-    int dy = std::abs(y2 - y1);
-    int sx = (x1 < x2) ? 1 : -1;
-    int sy = (y1 < y2) ? 1 : -1;
-    int err = dx - dy;
-
-    while (true) {
-        if (x1 >= 0 && x1 < static_cast<int>(framebuffer1.width) && y1 >= 0 && y1 < static_cast<int>(framebuffer1.height)) {
-            vram[y1 * framebuffer1.width + x1] = v1.color;
-        }
-
-        if (x1 == x2 && y1 == y2) break;
-        int e2 = err * 2;
-        if (e2 > -dy) {
-            err -= dy;
-            x1 += sx;
-        }
-        if (e2 < dx) {
-            err += dx;
-            y1 += sy;
-        }
-    }
-}
-
-int count = 0;
-
-void GS::draw_triangle(const std::vector<Vertex>& vertices) {
+void GS::draw_triangle_software(const std::vector<Vertex>& vertices) {
     if (vertices.size() < 3) {
         Logger::error("Not enough vertices to draw triangle");
         return;
@@ -864,7 +804,7 @@ void GS::draw_triangle(const std::vector<Vertex>& vertices) {
     }
 }
 
-void GS::draw_sprite(const std::vector<Vertex>& vertices) {
+void GS::draw_sprite_software(const std::vector<Vertex>& vertices) {
     if (vertices.size() < 2) {
         Logger::error("Not enough vertices to draw sprite");
         return;
@@ -990,6 +930,7 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
 
 int num = 0;
 void GS::batch_draw() {
+    //if (render_mode == RenderMode::OpenGL) opengl_.updateFromVram(vram, framebuffer1.width, framebuffer1.height, framebuffer1.fbw);
     bool executed = false;
     {
         std::lock_guard<std::mutex> lock(prim_queue_mutex);
@@ -1014,4 +955,13 @@ void GS::batch_draw() {
         vertex_buffer.clear();
         vertex_count = 0;
     }
+}
+
+
+void GS::draw_triangle_opengl(const std::vector<Vertex>& vertices) {
+	opengl_.draw_triangle_opengl(vertices);
+}
+
+void GS::draw_sprite_opengl(const std::vector<Vertex>& vertices) {
+	opengl_.draw_sprite_opengl(vertices);
 }
