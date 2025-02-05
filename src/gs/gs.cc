@@ -978,13 +978,13 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
         framebuffer1.format = format;
         framebuffer1.fbw = frame1_fbw * 64;
         framebuffer1.data = vram; // Assuming framebuffer1 uses the same VRAM
-        //Logger::info("Framebuffer 1 updated: width=" + std::to_string(width) + ", height=" + std::to_string(height) + ", format=" + std::to_string(format));
+        //Logger::info("GS_Framebuffer 1 updated: width=" + std::to_string(width) + ", height=" + std::to_string(height) + ", format=" + std::to_string(format));
     } else if (frame == 2) {
         framebuffer2.width = dw;
         framebuffer2.height = dh;
         framebuffer2.format = format;
         framebuffer2.data = vram; // Assuming framebuffer2 uses the same VRAM
-        //Logger::info("Framebuffer 2 updated: width=" + std::to_string(width) + ", height=" + std::to_string(height) + ", format=" + std::to_string(format));
+        //Logger::info("GS_Framebuffer 2 updated: width=" + std::to_string(width) + ", height=" + std::to_string(height) + ", format=" + std::to_string(format));
     }
 }
 
