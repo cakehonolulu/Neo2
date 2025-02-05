@@ -44,7 +44,7 @@ target_sources(neo2
 
 # Add OpenGL, SDL2, and ImGui include files to compilation
 target_include_directories(neo2 PUBLIC
-        glad_gl_core_mx_33
+        glad
         ${OPENGL_INCLUDE_DIRS}
         ${SDL3_INCLUDE_DIRS}
         ${IMGUI_SOURCE_DIR}

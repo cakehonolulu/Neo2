@@ -14,8 +14,10 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
+#include "imgui_impl_opengl3.h"
 #include "log/log_imgui.hh"
 #include <SDL3/SDL.h>
+#include <GL/glx.h>
 #include <stdio.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
@@ -378,83 +380,126 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
     ImGui::End();
 }
 
-void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
-    ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+void render_fbgl(GS& gs) {
+    ImGui::Begin("Framebuffer Display", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-    if (ImGui::BeginTabBar("FramebufferTabs")) {
-        if (ImGui::BeginTabItem("FRAME_1")) {
-            ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
+    // Get the available region inside the window.
+    ImVec2 avail = ImGui::GetContentRegionAvail();
 
+    // Retrieve the texture ID from your OpenGL framebuffer.
+    unsigned int texID = gs.opengl_.getFrameTexture();
+    
+    // Debug output: print the texture ID in both the console and the ImGui window.
+    ImGui::Text("Framebuffer texture ID: %u", texID);
+    
+    // Check for a valid texture.
+    if (texID == 0) {
+        ImGui::Text("ERROR: Texture ID is 0. Ensure that the OpenGL context is current and the framebuffer is properly initialized.");
+    } else {
+        // Display the framebuffer texture.
+        // OpenGL considers (0,0) as the lower-left, so we flip the Y-axis by specifying UVs (0,1) for lower-left and (1,0) for upper-right.
+        ImGui::Image((ImTextureID)(texID), ImVec2(gs.framebuffer1.width, gs.framebuffer1.height), ImVec2(0, 0), ImVec2(1, 1));
 
-            float tex_w, tex_h;
-            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
-                if (vram_texture) {
-                    SDL_DestroyTexture(vram_texture);
-                }
-                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
-                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
-            }
-
-            void* pixels;
-            int pitch;
-            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-            uint32_t* dst = static_cast<uint32_t*>(pixels);
-            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-            for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
-                for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
-                    uint32_t vram_index = y * gs.framebuffer1.fbw + x;
-                    dst[vram_index] = src[vram_index];
-                }
-            }
-
-            SDL_UnlockTexture(vram_texture);
-
-            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("FRAME_2")) {
-            ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
-
-            float tex_w, tex_h;
-            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
-                if (vram_texture) {
-                    SDL_DestroyTexture(vram_texture);
-                }
-                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
-                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
-            }
-
-            void* pixels;
-            int pitch;
-            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-            uint32_t* dst = static_cast<uint32_t*>(pixels);
-            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-            for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
-                for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
-                    uint32_t vram_index = y * gs.framebuffer2.width + x;
-                    dst[vram_index] = src[vram_index];
-                }
-            }
-
-            SDL_UnlockTexture(vram_texture);
-
-            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
     }
 
     ImGui::End();
+}
+
+
+void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
+    ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    if (gs.render_mode == RenderMode::OpenGL)
+    {
+        ImGui::Begin("Framebuffer Display", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+        // Get the available region inside the window.
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+
+        // Display the framebuffer texture.
+        // Note: OpenGL considers the texture origin (0,0) to be at the lower left,
+        // whereas many image sources (and ImGui's default) expect (0,0) at the top left.
+        // We flip the texture vertically by using UV coordinates (0,1) for the lower left and (1,0) for the upper right.
+        ImGui::Image((ImTextureID)(gs.opengl_.getFrameTexture()),
+                    avail, ImVec2(0, 1), ImVec2(1, 0));
+
+        ImGui::End();
+    } else {
+        if (ImGui::BeginTabBar("FramebufferTabs")) {
+            if (ImGui::BeginTabItem("FRAME_1")) {
+                ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
+
+
+                float tex_w, tex_h;
+                if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
+                    if (vram_texture) {
+                        SDL_DestroyTexture(vram_texture);
+                    }
+                    vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
+                    SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+                }
+
+                void* pixels;
+                int pitch;
+                SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+                uint32_t* dst = static_cast<uint32_t*>(pixels);
+                uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+                for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
+                    for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
+                        uint32_t vram_index = y * gs.framebuffer1.fbw + x;
+                        dst[vram_index] = src[vram_index];
+                    }
+                }
+
+                SDL_UnlockTexture(vram_texture);
+
+                ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+                ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("FRAME_2")) {
+                ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
+
+                float tex_w, tex_h;
+                if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
+                    if (vram_texture) {
+                        SDL_DestroyTexture(vram_texture);
+                    }
+                    vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
+                    SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+                }
+
+                void* pixels;
+                int pitch;
+                SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+                uint32_t* dst = static_cast<uint32_t*>(pixels);
+                uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+                for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
+                    for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
+                        uint32_t vram_index = y * gs.framebuffer2.width + x;
+                        dst[vram_index] = src[vram_index];
+                    }
+                }
+
+                SDL_UnlockTexture(vram_texture);
+
+                ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+                ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
+        }
+
+        ImGui::End();
+    }
 }
 
 struct MyRect {
@@ -745,6 +790,45 @@ void ImGui_Neo2::run(int argc, char **argv)
         return;
     }
 
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+    // GL ES 2.0 + GLSL 100 (WebGL 1.0)
+    const char* glsl_version = "#version 100";
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(IMGUI_IMPL_OPENGL_ES3)
+    // GL ES 3.0 + GLSL 300 es (WebGL 2.0)
+    const char* glsl_version = "#version 300 es";
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(__APPLE__)
+    // GL 3.2 Core + GLSL 150
+    const char* glsl_version = "#version 150";
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#else
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
     // Create window with SDL_Renderer graphics context
     Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     SDL_Window* window = SDL_CreateWindow("Neo2 - ImGui + SDL3", 1280, 720, window_flags);
@@ -753,15 +837,19 @@ void ImGui_Neo2::run(int argc, char **argv)
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
         return;
     }
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
-    SDL_SetRenderVSync(renderer, 1);
-    if (renderer == nullptr)
+    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
+    if (gl_context == nullptr)
     {
-        SDL_Log("Error: SDL_CreateRenderer(): %s\n", SDL_GetError());
+        printf("Error: SDL_GL_CreateContext(): %s\n", SDL_GetError());
         return;
     }
+
+    SDL_GL_MakeCurrent(window, gl_context);
+    SDL_GL_SetSwapInterval(1); // Enable vsync
+    
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
+
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -779,8 +867,11 @@ void ImGui_Neo2::run(int argc, char **argv)
     ImGui::StyleColorsDark();
 
     // Setup Platform/Renderer backends
-    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
-    ImGui_ImplSDLRenderer3_Init(renderer);
+    ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+    this->bus.gs.opengl_.init(640, 480);
+    this->bus.gs.set_render_mode(RenderMode::OpenGL);
 
     // Our state
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
@@ -805,7 +896,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     int vblank_end_id = scheduler.register_function([this](uint64_t cycles) {
         this->bus.gs.untog_vblank();
-        this->bus.gs.batch_draw();
+        //this->bus.gs.batch_draw();
         frame_ended = true;
     });
 
@@ -839,7 +930,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
         // Start the Dear ImGui frame
-        ImGui_ImplSDLRenderer3_NewFrame();
+        ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -941,11 +1032,11 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
         if (show_textures) {
-            render_textures(renderer, bus.gs);
+            render_textures(nullptr, bus.gs);
         }
 
         if (show_framebuffer) {
-            render_framebuffer(renderer, bus.gs);
+            render_fbgl(bus.gs);
         }
 
         // Handle the file dialog for loading BIOS
@@ -1130,24 +1221,25 @@ void ImGui_Neo2::run(int argc, char **argv)
             ImGui::End();
         }
 
-        // Rendering
         ImGui::Render();
-        //SDL_RenderSetScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-        SDL_SetRenderDrawColorFloat(renderer, clear_color.x, clear_color.y, clear_color.z, clear_color.w);
-        SDL_RenderClear(renderer);
-        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-        SDL_RenderPresent(renderer);
+        glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+        glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        this->bus.gs.opengl_.updateFromVram(this->bus.gs.vram, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, this->bus.gs.framebuffer1.fbw);
+        SDL_GL_SwapWindow(window);
     }
 #ifdef __EMSCRIPTEN__
     EMSCRIPTEN_MAINLOOP_END;
 #endif
 
     // Cleanup
-    ImGui_ImplSDLRenderer3_Shutdown();
+    ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
 
-    SDL_DestroyRenderer(renderer);
+    SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
