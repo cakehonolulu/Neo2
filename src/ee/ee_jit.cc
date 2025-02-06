@@ -201,6 +201,7 @@ void EEJIT::run(Breakpoint *breakpoints) {
 void EEJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints) {
     uint64_t current_cycles = 0;
     while (cycle_limit > current_cycles && !Neo2::is_aborted()) {
+        single_instruction_mode = true;
         current_cycles += execute_block(breakpoints);
         core->registers[0].u128 = 0;
     }

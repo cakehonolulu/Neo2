@@ -383,123 +383,124 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
 void render_fbgl(GS& gs) {
     ImGui::Begin("Framebuffer Display", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-    // Get the available region inside the window.
+    // Get the available region inside the ImGui window.
     ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    ImGui::Text("Framebuffer 1 (%dx%d)", gs.framebuffer1.width, gs.framebuffer1.height);
 
     // Retrieve the texture ID from your OpenGL framebuffer.
     unsigned int texID = gs.opengl_.getFrameTexture();
-    
-    // Debug output: print the texture ID in both the console and the ImGui window.
+
+    // Debug output: print the texture ID.
     ImGui::Text("Framebuffer texture ID: %u", texID);
-    
-    // Check for a valid texture.
+
     if (texID == 0) {
         ImGui::Text("ERROR: Texture ID is 0. Ensure that the OpenGL context is current and the framebuffer is properly initialized.");
     } else {
-        // Display the framebuffer texture.
-        // OpenGL considers (0,0) as the lower-left, so we flip the Y-axis by specifying UVs (0,1) for lower-left and (1,0) for upper-right.
-        ImGui::Image((ImTextureID)(texID), ImVec2(gs.framebuffer1.width, gs.framebuffer1.height), ImVec2(0, 0), ImVec2(1, 1));
+        // Query the texture dimensions from OpenGL.
+        int texWidth = 0, texHeight = 0;
+        glBindTexture(GL_TEXTURE_2D, texID);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &texWidth);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &texHeight);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
+        ImGui::Text("Texture Size: %dx%d", texWidth, texHeight);
+
+        // Stretch the image vertically by a factor of 2.
+        ImVec2 displaySize(static_cast<float>(texWidth), static_cast<float>(texHeight) * 2.0f);
+
+        // Use the texture's dimensions for the display. Since OpenGL considers (0,0)
+        // as the lower left and ImGui by default expects (0,0) to be the top left,
+        // we use the default UV coordinates (0,0) to (1,1) to display the image in its natural orientation.
+        ImGui::Image((ImTextureID)(texID),
+                     displaySize,
+                     ImVec2(0, 0),   // lower-left UV coordinate
+                     ImVec2(1, 1));  // upper-right UV coordinate
+
+        glBindTexture(GL_TEXTURE_2D, texID);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, gs.framebuffer1.width, gs.framebuffer1.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
     }
 
     ImGui::End();
 }
 
-
 void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
     ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-    if (gs.render_mode == RenderMode::OpenGL)
-    {
-        ImGui::Begin("Framebuffer Display", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-
-        // Get the available region inside the window.
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-
-        // Display the framebuffer texture.
-        // Note: OpenGL considers the texture origin (0,0) to be at the lower left,
-        // whereas many image sources (and ImGui's default) expect (0,0) at the top left.
-        // We flip the texture vertically by using UV coordinates (0,1) for the lower left and (1,0) for the upper right.
-        ImGui::Image((ImTextureID)(gs.opengl_.getFrameTexture()),
-                    avail, ImVec2(0, 1), ImVec2(1, 0));
-
-        ImGui::End();
-    } else {
-        if (ImGui::BeginTabBar("FramebufferTabs")) {
-            if (ImGui::BeginTabItem("FRAME_1")) {
-                ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
+    if (ImGui::BeginTabBar("FramebufferTabs")) {
+        if (ImGui::BeginTabItem("FRAME_1")) {
+            ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
 
 
-                float tex_w, tex_h;
-                if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
-                    if (vram_texture) {
-                        SDL_DestroyTexture(vram_texture);
-                    }
-                    vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
-                    SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+            float tex_w, tex_h;
+            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
+                if (vram_texture) {
+                    SDL_DestroyTexture(vram_texture);
                 }
-
-                void* pixels;
-                int pitch;
-                SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-                uint32_t* dst = static_cast<uint32_t*>(pixels);
-                uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-                for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
-                    for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
-                        uint32_t vram_index = y * gs.framebuffer1.fbw + x;
-                        dst[vram_index] = src[vram_index];
-                    }
-                }
-
-                SDL_UnlockTexture(vram_texture);
-
-                ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-                ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-                ImGui::EndTabItem();
+                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
+                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
             }
 
-            if (ImGui::BeginTabItem("FRAME_2")) {
-                ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
+            void* pixels;
+            int pitch;
+            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
 
-                float tex_w, tex_h;
-                if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
-                    if (vram_texture) {
-                        SDL_DestroyTexture(vram_texture);
-                    }
-                    vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
-                    SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+            uint32_t* dst = static_cast<uint32_t*>(pixels);
+            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+            for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
+                for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
+                    uint32_t vram_index = y * gs.framebuffer1.fbw + x;
+                    dst[vram_index] = src[vram_index];
                 }
-
-                void* pixels;
-                int pitch;
-                SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-                uint32_t* dst = static_cast<uint32_t*>(pixels);
-                uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-                for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
-                    for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
-                        uint32_t vram_index = y * gs.framebuffer2.width + x;
-                        dst[vram_index] = src[vram_index];
-                    }
-                }
-
-                SDL_UnlockTexture(vram_texture);
-
-                ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-                ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-                ImGui::EndTabItem();
             }
 
-            ImGui::EndTabBar();
+            SDL_UnlockTexture(vram_texture);
+
+            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+            ImGui::EndTabItem();
         }
 
-        ImGui::End();
+        if (ImGui::BeginTabItem("FRAME_2")) {
+            ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
+
+            float tex_w, tex_h;
+            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
+                if (vram_texture) {
+                    SDL_DestroyTexture(vram_texture);
+                }
+                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
+                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
+            }
+
+            void* pixels;
+            int pitch;
+            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
+
+            uint32_t* dst = static_cast<uint32_t*>(pixels);
+            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
+
+            for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
+                for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
+                    uint32_t vram_index = y * gs.framebuffer2.width + x;
+                    dst[vram_index] = src[vram_index];
+                }
+            }
+
+            SDL_UnlockTexture(vram_texture);
+
+            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
+            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
+
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
+
+    ImGui::End();
 }
 
 struct MyRect {
@@ -885,18 +886,19 @@ void ImGui_Neo2::run(int argc, char **argv)
     this->iop.set_backend(use_jit_iop ? EmulationMode::JIT : EmulationMode::Interpreter);
 
     Scheduler scheduler;
-
+    bool draw = false;
     int gs_vblank_event_id = scheduler.register_function([this](uint64_t cycles) {
-        this->bus.gs.simul_vblank();
+        this->bus.gs.untog_vblank();
     });
 
     int gs_vblank_task_id = scheduler.register_function([this, &vs, &scheduler, &gs_vblank_event_id](uint64_t cycles) {
         scheduler.add_event(gs_vblank_event_id, GS_VBLANK_DELAY, "VBlank Delay");
+        this->bus.gs.simul_vblank();
     });
 
-    int vblank_end_id = scheduler.register_function([this](uint64_t cycles) {
-        this->bus.gs.untog_vblank();
+    int vblank_end_id = scheduler.register_function([this, &draw](uint64_t cycles) {
         //this->bus.gs.batch_draw();
+        draw = true;
         frame_ended = true;
     });
 
@@ -1052,7 +1054,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
 		imgui_logger->render();
-        render_primitive_viewer(bus.gs);
+        //render_primitive_viewer(bus.gs);
 
         if (Neo2::is_aborted() && !suppress_exit_notification) {
             // Set window size and open popup
@@ -1227,7 +1229,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        this->bus.gs.opengl_.updateFromVram(this->bus.gs.vram, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, this->bus.gs.framebuffer1.fbw);
+        if (draw) { this->bus.gs.batch_draw(); draw = false; }
         SDL_GL_SwapWindow(window);
     }
 #ifdef __EMSCRIPTEN__
