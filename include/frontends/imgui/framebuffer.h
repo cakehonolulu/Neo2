@@ -23,8 +23,11 @@ public:
     unsigned int vbo = 0;
     unsigned int shader_program = 0;
 
-	void draw_triangle_opengl(const std::vector<Vertex>& vertices);
-    void draw_sprite_opengl(const std::vector<Vertex>& vertices);
+    void finish_queue() const;
+    void draw_test();
+    void new_tex(uint32_t width, uint32_t height, uint32_t fbw);
+	void draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
+    void draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
 	void updateFromVram(const uint32_t* vram, int width, int height, int fbw);
 
 private:

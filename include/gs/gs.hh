@@ -119,24 +119,22 @@ public:
     void draw_sprite_software(const std::vector<Vertex>& vertices);
 
     // OpenGL renderer.
-    void draw_triangle_opengl(const std::vector<Vertex>& vertices);
-    void draw_sprite_opengl(const std::vector<Vertex>& vertices);
+    void draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
+    void draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
 
     // Branching methods.
     void draw_triangle(const std::vector<Vertex>& vertices) {
-        fflush(stdout);
         if (render_mode == RenderMode::Software)
             draw_triangle_software(vertices);
         else
-            draw_triangle_opengl(vertices);
+            draw_triangle_opengl(vertices, framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
     }
 
     void draw_sprite(const std::vector<Vertex>& vertices) {
-        fflush(stdout);
         if (render_mode == RenderMode::Software)
             draw_sprite_software(vertices);
         else
-            draw_sprite_opengl(vertices);
+            draw_sprite_opengl(vertices, framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
     }
 
     RenderMode render_mode = RenderMode::Software;

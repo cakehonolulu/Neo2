@@ -930,7 +930,7 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
 
 int num = 0;
 void GS::batch_draw() {
-    //if (render_mode == RenderMode::OpenGL) opengl_.updateFromVram(vram, framebuffer1.width, framebuffer1.height, framebuffer1.fbw);
+    if (render_mode == RenderMode::OpenGL) opengl_.updateFromVram(vram, framebuffer1.width, framebuffer1.height, framebuffer1.fbw);
     bool executed = false;
     {
         std::lock_guard<std::mutex> lock(prim_queue_mutex);
@@ -958,10 +958,10 @@ void GS::batch_draw() {
 }
 
 
-void GS::draw_triangle_opengl(const std::vector<Vertex>& vertices) {
-	opengl_.draw_triangle_opengl(vertices);
+void GS::draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
+	opengl_.draw_triangle_opengl(vertices, width, height, scissor);
 }
 
-void GS::draw_sprite_opengl(const std::vector<Vertex>& vertices) {
-	opengl_.draw_sprite_opengl(vertices);
+void GS::draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
+	opengl_.draw_sprite_opengl(vertices, width, height, scissor);
 }
