@@ -36,7 +36,7 @@ public:
     void set_timer_pause(uint64_t timer_id, bool paused);
     void set_timer_int_mask(uint64_t timer_id, bool can_overflow, bool can_target);
 
-    void update_cycle_counts();
+    void update_cycle_counts(uint64_t executed);
     void process_events();
 
 private:

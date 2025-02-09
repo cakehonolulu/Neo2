@@ -261,18 +261,17 @@ void Scheduler::set_timer_clockrate(uint64_t timer_id, uint64_t clockrate) {
         update_timer_event_time(timer_id);
 }
 
-void Scheduler::update_cycle_counts() {
-    ee_cycles.count += run_cycles;
-    bus_cycles.count += run_cycles >> 1;
-    iop_cycles.count += run_cycles >> 3;
+void Scheduler::update_cycle_counts(uint64_t executed) {
+    ee_cycles.count += executed;
+    bus_cycles.count += executed >> 1;
+    iop_cycles.count += executed >> 3;
 
-    bus_cycles.remainder += run_cycles & 0x1;
-    if (bus_cycles.remainder > 1) {
+    bus_cycles.remainder += executed & 0x1;
+    if (bus_cycles.remainder >= 2) {
         bus_cycles.count++;
-        bus_cycles.remainder = 0;
+        bus_cycles.remainder -= 2;
     }
-
-    iop_cycles.remainder += run_cycles & 0x7;
+    iop_cycles.remainder += executed & 0x7;
     if (iop_cycles.remainder >= 8) {
         iop_cycles.count++;
         iop_cycles.remainder -= 8;

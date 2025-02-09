@@ -31,180 +31,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#define SERVER_IP "127.0.0.1"
-#define PORT 12345
+#include "scheduler.hh"
+#include "constants.hh"
 
-int client_fd = -1;
-
-void connectToPCSX2() {
-    struct sockaddr_in server_address;
-
-    // Create the socket
-    if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(PORT);
-
-    // Convert server IP address
-    if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) <= 0) {
-        perror("Invalid server address");
-        exit(EXIT_FAILURE);
-    }
-
-    // Connect to the server
-    while (connect(client_fd, (struct sockaddr*)&server_address, sizeof(server_address)) < 0) {
-        Logger::info("Waiting for PCSX2 server...");
-        sleep(1);
-    }
-
-    Logger::info("Connected to PCSX2 server!");
-}
-
-#undef Default
-#include "json.hpp"
-using json = nlohmann::json;
-
-std::string to_hex_string(uint32_t value) {
-    std::ostringstream stream;
-    stream << std::hex << std::uppercase << value;
-    return stream.str();
-}
-
-std::string to_hex_string(uint128_t value) {
-    uint64_t high = value.u64[1];
-    uint64_t low = value.u64[0];
-    std::stringstream ss;
-    ss << std::hex << std::setw(16) << std::setfill('0') << high
-       << std::setw(16) << std::setfill('0') << low;
-    return ss.str();
-}
-
-static size_t step_counter = 0;  // Sequence number
-// Function to compare two JSON objects and highlight differences
-void compareAndPrintJsonDiff(const json& client_state, const json& server_state) {
-    for (json::const_iterator it = client_state.begin(); it != client_state.end(); ++it) {
-        // check if it.key() contains cop0_reg_ and skip
-        if (it.key().find("cop0_reg") == 0) {
-            continue;
-        }
-        // If key exists in server state
-        if (server_state.contains(it.key())) {
-            if (it.value() != server_state[it.key()]) {
-                // Color differences red
-                std::cout << "\033[31mDifference in key: " << it.key() << "\033[0m" << std::endl;
-                std::cout << "  Neo2 state: " << it.value() << std::endl;
-                std::cout << "  PCSX2 state: " << server_state[it.key()] << std::endl;
-            }
-        } else {
-            // Key not in server state, print in red
-            std::cout << "\033[31mKey missing in server state: " << it.key() << "\033[0m" << std::endl;
-        }
-    }
-
-    // Check for keys in server state that are missing in client state
-    for (json::const_iterator it = server_state.begin(); it != server_state.end(); ++it) {
-        // Skip cop0_reg* entries
-        if (it.key().find("cop0_reg") == 0) {
-            continue;
-        }
-
-        if (!client_state.contains(it.key())) {
-            // Missing key in client state, print in red
-            std::cout << "\033[31mKey missing in client state: " << it.key() << "\033[0m" << std::endl;
-        }
-    }
-}
-
-int compareRegistersWithPCSX2(EE* core) {
-    int ret = 1;
-
-    // Step 1: Send the `ready_number` to PCSX2
-    std::string ready_signal = "ready_" + std::to_string(step_counter) + "\n";
-    send(client_fd, ready_signal.c_str(), ready_signal.size(), 0);
-
-    // Step 2: Wait for the register JSON from PCSX2
-    char buffer[10240] = {0};
-    size_t total_bytes = 0;
-
-    while (true) {
-        int bytes_received = read(client_fd, buffer + total_bytes, sizeof(buffer) - total_bytes - 1);
-        if (bytes_received <= 0) {
-            std::cerr << "Error: Lost connection to PCSX2." << std::endl;
-            exit(1);
-        }
-        total_bytes += bytes_received;
-        buffer[total_bytes] = '\0';  // Ensure null-termination
-
-        if (buffer[total_bytes - 1] == '\n') break;  // End of message detected
-    }
-
-    json server_state = json::parse(buffer);
-    
-    // Get "PC" key from server_state as uint32_t
-    uint32_t server_pc = std::stoul(server_state["pc"].get<std::string>(), nullptr, 16);
-
-    // Step 3: Generate Neo2's current state
-    json neo2_state = {
-        {"pc", "0x" + to_hex_string(core->pc)},
-        {"hi", "0x" + to_hex_string(core->hi)},
-        {"lo", "0x" + to_hex_string(core->lo)}
-    };
-
-    for (int i = 0; i < 32; ++i) {
-        neo2_state["reg_" + std::to_string(i)] = "0x" + to_hex_string(core->registers[i]);
-    }
-
-    for (int i = 0; i < 32; ++i) {
-        neo2_state["cop0_reg_" + std::to_string(i)] = "0x" + to_hex_string(core->cop0.regs[i]);
-    }
-
-    // Print client state and server state differences
-    compareAndPrintJsonDiff(neo2_state, server_state);
-
-    std::cerr << "Init PC: 0x" << std::hex << core->pc << std::endl;
-    // Filter out cop0_reg_* entries from a JSON object
-    auto filter_cop0_regs = [](const json& state) -> json {
-        json filtered_state;
-        for (auto it = state.begin(); it != state.end(); ++it) {
-            if (it.key().find("cop0_reg") != 0) { // Skip keys starting with "cop0_reg"
-                filtered_state[it.key()] = it.value();
-            }
-        }
-        return filtered_state;
-    };
-
-    // Filter the states
-    json filtered_neo2_state = filter_cop0_regs(neo2_state);
-    json filtered_server_state = filter_cop0_regs(server_state);
-
-    // Compare filtered states
-    if (filtered_neo2_state != filtered_server_state) {
-        std::cerr << "Mismatch detected!" << std::endl;
-        std::cerr << "Neo2 state: " << filtered_neo2_state.dump(4) << std::endl;
-        std::cerr << "PCSX2 state: " << filtered_server_state.dump(4) << std::endl;
-
-        // Send `MISMATCH` to PCSX2
-        std::string mismatch_signal = "MISMATCH\n";
-        send(client_fd, mismatch_signal.c_str(), mismatch_signal.size(), 0);
-        exit(1);
-    }
-
-    // Step 4: Send `ACK` to PCSX2
-    std::string ack_signal = "ACK\n";
-    send(client_fd, ack_signal.c_str(), ack_signal.size(), 0);
-
-    // Increment the step counter
-    step_counter++;
-
-    ret = 0;
-    return ret;
-}
-
-bool logging_enabled = true; // Flag to track logging state
-Disassembler disassembler;
+struct MyRect {
+    ImVec2 Min;
+    ImVec2 Max;
+};
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -218,77 +51,30 @@ void ImGui_Neo2::init()
     Logger::debug("Initializing ImGui frontend...\n");
 }
 
-const std::string regs[32] = {
-    "zr", "at", "v0", "v1", "a0", "a1", "a2", "a3",
-    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
-    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
-    "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"
-};
+unsigned int create_texture_from_vram(GS& gs, const GS::Texture& texture) {
+    unsigned int texture_id;
+    glGenTextures(1, &texture_id);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-void log_instruction(EE* cpu) {
-    if (!logging_enabled) {
-        return;
-    }
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, gs.framebuffer1.fbw);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, static_cast<int>(texture.width), static_cast<int>(texture.height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texture.width, texture.height, GL_RGBA, GL_UNSIGNED_BYTE, gs.vram + texture.address);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
-    std::ofstream logfile("instruction_trace.txt", std::ios::app);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    uint32_t pc = cpu->pc;
-    uint32_t opcode = cpu->bus->read32(pc);
-    DisassemblyData data = disassembler.disassemble(cpu, pc, opcode, false);
-
-    //logfile << "PC: " << format("{:08X}", cpu->pc) << " " << data.mnemonic << "\n";
-    logfile << "PC: " << format("{:08X}", cpu->pc) << "\n";
-    logfile << "GPR:\n";
-    for (size_t i = 0; i < 32; i++) {
-        //if (auto* ee = dynamic_cast<const EE*>(cpu)) {
-            logfile << regs[i] << ": " << format("{:016X}", cpu->registers[i].u64[1])
-            << format("{:016X} ", cpu->registers[i].u64[0]);
-            if ((i - 1) % 2 == 0) logfile << "\n";
-        /*} else if (auto* iop = dynamic_cast<const IOP*>(cpu)) {
-            logfile << std::hex << iop->registers[i] << " ";
-        }*/
-    }
-    logfile << "\n";
-    //if (auto* ee = dynamic_cast<const EE*>(cpu)) {
-        logfile << "HI: " << format("{:08X}", cpu->hi.u32[0]) << " LO: " << format("{:08X}", cpu->lo.u32[0]) << "\n";
-    //}
-    logfile << "------------------------------------------------------------\n";
-    logfile.close();
+    return texture_id;
 }
 
-SDL_Texture* vram_texture = nullptr;
-float zoom_factor = 1.0f;
-
-SDL_Texture* create_texture_from_vram(SDL_Renderer* renderer, GS& gs, const GS::Texture& texture) {
-    int tex_h = texture.height * 2;
-    SDL_Texture* sdl_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, texture.width, tex_h);
-    SDL_SetTextureScaleMode(sdl_texture, SDL_SCALEMODE_LINEAR);
-
-    void* pixels;
-    int pitch;
-    SDL_LockTexture(sdl_texture, nullptr, &pixels, &pitch);
-
-    uint32_t* dst = static_cast<uint32_t*>(pixels);
-    uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-    for (uint32_t y = 0; y < texture.width; ++y) {
-        for (uint32_t x = 0; x < tex_h; ++x) {
-            uint32_t vram_index = (texture.address) + y * tex_h + x;
-            dst[y * tex_h + x] = src[vram_index];
-        }
-    }
-
-    SDL_UnlockTexture(sdl_texture);
-    return sdl_texture;
-}
-
-void render_textures(SDL_Renderer* renderer, GS& gs) {
+void render_textures(GS& gs, float zoom_factor) {
     ImGui::Begin("Textures", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
     const auto& textures = gs.get_textures();
     static int selected_texture_index = -1;
     static std::vector<bool> texture_windows_open(textures.size(), false);
-    static std::vector<SDL_Texture*> sdl_textures(textures.size(), nullptr);
+    static std::vector<unsigned int> opengl_textures(textures.size(), 0);
 
     ImGui::Text("Available Textures:");
     ImGui::Separator();
@@ -298,8 +84,8 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
         if (ImGui::Selectable(texture.name.c_str(), selected_texture_index == static_cast<int>(i))) {
             selected_texture_index = static_cast<int>(i);
             texture_windows_open[i] = true;
-            if (!sdl_textures[i]) {
-                sdl_textures[i] = create_texture_from_vram(renderer, gs, texture);
+            if (opengl_textures[i] == 0) {
+                opengl_textures[i] = create_texture_from_vram(gs, texture);
             }
         }
     }
@@ -366,147 +152,19 @@ void render_textures(SDL_Renderer* renderer, GS& gs) {
             ImGui::Text("Format: %s", format.c_str());
 
             ImVec2 texture_size = ImVec2(texture.width * zoom_factor, texture.height * zoom_factor);
-            ImGui::Image(reinterpret_cast<ImTextureID>(sdl_textures[i]), texture_size);
+            ImGui::Image((ImTextureID)(opengl_textures[i]), texture_size);
 
             ImGui::End();
 
             if (!open) {
-                SDL_DestroyTexture(sdl_textures[i]);
-                sdl_textures[i] = nullptr;
+                //glDeleteTextures(1, &opengl_textures[i]);
+                //opengl_textures[i] = 0;
             }
         }
     }
 
     ImGui::End();
 }
-
-void render_fbgl(GS& gs) {
-    ImGui::Begin("Framebuffer Display", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-
-    // Get the available region inside the ImGui window.
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-
-    ImGui::Text("Framebuffer 1 (%dx%d)", gs.framebuffer1.width, gs.framebuffer1.height);
-
-    // Retrieve the texture ID from your OpenGL framebuffer.
-    unsigned int texID = gs.opengl_.getFrameTexture();
-
-    // Debug output: print the texture ID.
-    ImGui::Text("Framebuffer texture ID: %u", texID);
-
-    if (texID == 0) {
-        ImGui::Text("ERROR: Texture ID is 0. Ensure that the OpenGL context is current and the framebuffer is properly initialized.");
-    } else {
-        // Query the texture dimensions from OpenGL.
-        int texWidth = 0, texHeight = 0;
-        glBindTexture(GL_TEXTURE_2D, texID);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &texWidth);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &texHeight);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        ImGui::Text("Texture Size: %dx%d", texWidth, texHeight);
-
-        // Stretch the image vertically by a factor of 2.
-        ImVec2 displaySize(static_cast<float>(texWidth), static_cast<float>(texHeight) * 2.0f);
-
-        // Use the texture's dimensions for the display. Since OpenGL considers (0,0)
-        // as the lower left and ImGui by default expects (0,0) to be the top left,
-        // we use the default UV coordinates (0,0) to (1,1) to display the image in its natural orientation.
-        ImGui::Image((ImTextureID)(texID),
-                     displaySize,
-                     ImVec2(0, 0),   // lower-left UV coordinate
-                     ImVec2(1, 1));  // upper-right UV coordinate
-
-        glBindTexture(GL_TEXTURE_2D, texID);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, gs.framebuffer1.width, gs.framebuffer1.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    }
-
-    ImGui::End();
-}
-
-void render_framebuffer(SDL_Renderer* renderer, GS& gs) {
-    ImGui::Begin("Framebuffer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-
-    if (ImGui::BeginTabBar("FramebufferTabs")) {
-        if (ImGui::BeginTabItem("FRAME_1")) {
-            ImGui::Text("Framebuffer 1 Size: %dx%d", gs.framebuffer1.width, gs.framebuffer1.height);
-
-
-            float tex_w, tex_h;
-            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer1.width || tex_h != gs.framebuffer1.height) {
-                if (vram_texture) {
-                    SDL_DestroyTexture(vram_texture);
-                }
-                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer1.fbw, gs.framebuffer1.height);
-                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
-            }
-
-            void* pixels;
-            int pitch;
-            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-            uint32_t* dst = static_cast<uint32_t*>(pixels);
-            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-            for (uint32_t y = 0; y < gs.framebuffer1.height; ++y) {
-                for (uint32_t x = 0; x < gs.framebuffer1.fbw; ++x) {
-                    uint32_t vram_index = y * gs.framebuffer1.fbw + x;
-                    dst[vram_index] = src[vram_index];
-                }
-            }
-
-            SDL_UnlockTexture(vram_texture);
-
-            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("FRAME_2")) {
-            ImGui::Text("Framebuffer 2 Size: %dx%d", gs.framebuffer2.width, gs.framebuffer2.height);
-
-            float tex_w, tex_h;
-            if (!vram_texture || SDL_GetTextureSize(vram_texture, &tex_w, &tex_h) != 0 || tex_w != gs.framebuffer2.width || tex_h != gs.framebuffer2.height) {
-                if (vram_texture) {
-                    SDL_DestroyTexture(vram_texture);
-                }
-                vram_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR8888, SDL_TEXTUREACCESS_STREAMING, gs.framebuffer2.width, gs.framebuffer2.height);
-                SDL_SetTextureScaleMode(vram_texture, SDL_SCALEMODE_LINEAR);
-            }
-
-            void* pixels;
-            int pitch;
-            SDL_LockTexture(vram_texture, nullptr, &pixels, &pitch);
-
-            uint32_t* dst = static_cast<uint32_t*>(pixels);
-            uint32_t* src = reinterpret_cast<uint32_t*>(gs.vram);
-
-            for (uint32_t y = 0; y < gs.framebuffer2.height; ++y) {
-                for (uint32_t x = 0; x < gs.framebuffer2.width; ++x) {
-                    uint32_t vram_index = y * gs.framebuffer2.width + x;
-                    dst[vram_index] = src[vram_index];
-                }
-            }
-
-            SDL_UnlockTexture(vram_texture);
-
-            ImVec2 texture_size = ImVec2(640 * zoom_factor, 480 * zoom_factor); // Always stretch to 640x480
-            ImGui::Image(reinterpret_cast<ImTextureID>(vram_texture), texture_size);
-
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::End();
-}
-
-struct MyRect {
-    ImVec2 Min;
-    ImVec2 Max;
-};
 
 // Compute a bounding rectangle for a set of vertices.
 MyRect compute_bounding_rect(const std::vector<Vertex>& vertices) {
@@ -679,13 +337,11 @@ void render_primitive_viewer(GS& gs) {
     ImGui::End();
 }
 
-
-#include "scheduler.hh"
-#include "constants.hh"
-
 void ImGui_Neo2::run(int argc, char **argv)
 {
-    int vs = 0;
+    Disassembler disassembler;
+
+    float zoom_factor = 1.0f;
 
     // Main loop
     bool done = false;
@@ -851,21 +507,101 @@ void ImGui_Neo2::run(int argc, char **argv)
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
-
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;  // Enable DPI scaling for viewports
-    io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;     // Enable DPI scaling for fonts
     io.FontGlobalScale = 1.25f;
 
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
+    // Hazy Dark style by kaitabuchi314 from ImThemes
+	ImGuiStyle& style = ImGui::GetStyle();
+	
+	style.Alpha = 1.0f;
+	style.DisabledAlpha = 0.6000000238418579f;
+	style.WindowPadding = ImVec2(5.5f, 8.300000190734863f);
+	style.WindowRounding = 4.5f;
+	style.WindowBorderSize = 1.0f;
+	style.WindowMinSize = ImVec2(32.0f, 32.0f);
+	style.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+	style.WindowMenuButtonPosition = ImGuiDir_Left;
+	style.ChildRounding = 3.200000047683716f;
+	style.ChildBorderSize = 1.0f;
+	style.PopupRounding = 2.700000047683716f;
+	style.PopupBorderSize = 1.0f;
+	style.FramePadding = ImVec2(4.0f, 3.0f);
+	style.FrameRounding = 2.400000095367432f;
+	style.FrameBorderSize = 0.0f;
+	style.ItemSpacing = ImVec2(8.0f, 4.0f);
+	style.ItemInnerSpacing = ImVec2(4.0f, 4.0f);
+	style.CellPadding = ImVec2(4.0f, 2.0f);
+	style.IndentSpacing = 21.0f;
+	style.ColumnsMinSpacing = 6.0f;
+	style.ScrollbarSize = 14.0f;
+	style.ScrollbarRounding = 9.0f;
+	style.GrabMinSize = 10.0f;
+	style.GrabRounding = 3.200000047683716f;
+	style.TabRounding = 3.5f;
+	style.TabBorderSize = 1.0f;
+	style.TabMinWidthForCloseButton = 0.0f;
+	style.ColorButtonPosition = ImGuiDir_Right;
+	style.ButtonTextAlign = ImVec2(0.5f, 0.5f);
+	style.SelectableTextAlign = ImVec2(0.0f, 0.0f);
+	
+	style.Colors[ImGuiCol_Text] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+	style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.4980392158031464f, 0.4980392158031464f, 0.4980392158031464f, 1.0f);
+	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.05882352963089943f, 0.05882352963089943f, 0.05882352963089943f, 0.9399999976158142f);
+	style.Colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+	style.Colors[ImGuiCol_PopupBg] = ImVec4(0.0784313753247261f, 0.0784313753247261f, 0.0784313753247261f, 0.9399999976158142f);
+	style.Colors[ImGuiCol_Border] = ImVec4(0.4274509847164154f, 0.4274509847164154f, 0.4980392158031464f, 0.5f);
+	style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+	style.Colors[ImGuiCol_FrameBg] = ImVec4(0.1372549086809158f, 0.1725490242242813f, 0.2274509817361832f, 0.5400000214576721f);
+	style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.2117647081613541f, 0.2549019753932953f, 0.3019607961177826f, 0.4000000059604645f);
+	style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.04313725605607033f, 0.0470588244497776f, 0.0470588244497776f, 0.6700000166893005f);
+	style.Colors[ImGuiCol_TitleBg] = ImVec4(0.03921568766236305f, 0.03921568766236305f, 0.03921568766236305f, 1.0f);
+	style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.0784313753247261f, 0.08235294371843338f, 0.09019608050584793f, 1.0f);
+	style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.0f, 0.0f, 0.0f, 0.5099999904632568f);
+	style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.1372549086809158f, 0.1372549086809158f, 0.1372549086809158f, 1.0f);
+	style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.01960784383118153f, 0.01960784383118153f, 0.01960784383118153f, 0.5299999713897705f);
+	style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.3098039329051971f, 0.3098039329051971f, 0.3098039329051971f, 1.0f);
+	style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.407843142747879f, 0.407843142747879f, 0.407843142747879f, 1.0f);
+	style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.5098039507865906f, 0.5098039507865906f, 0.5098039507865906f, 1.0f);
+	style.Colors[ImGuiCol_CheckMark] = ImVec4(0.7176470756530762f, 0.7843137383460999f, 0.843137264251709f, 1.0f);
+	style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.47843137383461f, 0.5254902243614197f, 0.572549045085907f, 1.0f);
+	style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.2901960909366608f, 0.3176470696926117f, 0.3529411852359772f, 1.0f);
+	style.Colors[ImGuiCol_Button] = ImVec4(0.1490196138620377f, 0.1607843190431595f, 0.1764705926179886f, 0.4000000059604645f);
+	style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.1372549086809158f, 0.1450980454683304f, 0.1568627506494522f, 1.0f);
+	style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.0784313753247261f, 0.08627451211214066f, 0.09019608050584793f, 1.0f);
+	style.Colors[ImGuiCol_Header] = ImVec4(0.196078434586525f, 0.2156862765550613f, 0.239215686917305f, 0.3100000023841858f);
+	style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.1647058874368668f, 0.1764705926179886f, 0.1921568661928177f, 0.800000011920929f);
+	style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.07450980693101883f, 0.08235294371843338f, 0.09019608050584793f, 1.0f);
+	style.Colors[ImGuiCol_Separator] = ImVec4(0.4274509847164154f, 0.4274509847164154f, 0.4980392158031464f, 0.5f);
+	style.Colors[ImGuiCol_SeparatorHovered] = ImVec4(0.239215686917305f, 0.3254902064800262f, 0.4235294163227081f, 0.7799999713897705f);
+	style.Colors[ImGuiCol_SeparatorActive] = ImVec4(0.2745098173618317f, 0.3803921639919281f, 0.4980392158031464f, 1.0f);
+	style.Colors[ImGuiCol_ResizeGrip] = ImVec4(0.2901960909366608f, 0.3294117748737335f, 0.3764705955982208f, 0.2000000029802322f);
+	style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.239215686917305f, 0.2980392277240753f, 0.3686274588108063f, 0.6700000166893005f);
+	style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.1647058874368668f, 0.1764705926179886f, 0.1882352977991104f, 0.949999988079071f);
+	style.Colors[ImGuiCol_Tab] = ImVec4(0.1176470592617989f, 0.125490203499794f, 0.1333333402872086f, 0.8619999885559082f);
+	style.Colors[ImGuiCol_TabHovered] = ImVec4(0.3294117748737335f, 0.407843142747879f, 0.501960813999176f, 0.800000011920929f);
+	style.Colors[ImGuiCol_TabActive] = ImVec4(0.2431372553110123f, 0.2470588237047195f, 0.2549019753932953f, 1.0f);
+	style.Colors[ImGuiCol_TabUnfocused] = ImVec4(0.06666667014360428f, 0.1019607856869698f, 0.1450980454683304f, 0.9724000096321106f);
+	style.Colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.1333333402872086f, 0.2588235437870026f, 0.4235294163227081f, 1.0f);
+	style.Colors[ImGuiCol_PlotLines] = ImVec4(0.6078431606292725f, 0.6078431606292725f, 0.6078431606292725f, 1.0f);
+	style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.0f, 0.4274509847164154f, 0.3490196168422699f, 1.0f);
+	style.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.8980392217636108f, 0.6980392336845398f, 0.0f, 1.0f);
+	style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.0f, 0.6000000238418579f, 0.0f, 1.0f);
+	style.Colors[ImGuiCol_TableHeaderBg] = ImVec4(0.1882352977991104f, 0.1882352977991104f, 0.2000000029802322f, 1.0f);
+	style.Colors[ImGuiCol_TableBorderStrong] = ImVec4(0.3098039329051971f, 0.3098039329051971f, 0.3490196168422699f, 1.0f);
+	style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.2274509817361832f, 0.2274509817361832f, 0.2470588237047195f, 1.0f);
+	style.Colors[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+	style.Colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.05999999865889549f);
+	style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.2588235437870026f, 0.5882353186607361f, 0.9764705896377563f, 0.3499999940395355f);
+	style.Colors[ImGuiCol_DragDropTarget] = ImVec4(1.0f, 1.0f, 0.0f, 0.8999999761581421f);
+	style.Colors[ImGuiCol_NavHighlight] = ImVec4(0.2588235437870026f, 0.5882353186607361f, 0.9764705896377563f, 1.0f);
+	style.Colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.0f, 1.0f, 1.0f, 0.699999988079071f);
+	style.Colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.800000011920929f, 0.800000011920929f, 0.800000011920929f, 0.2000000029802322f);
+	style.Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.800000011920929f, 0.800000011920929f, 0.800000011920929f, 0.3499999940395355f);
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
@@ -886,18 +622,19 @@ void ImGui_Neo2::run(int argc, char **argv)
     this->iop.set_backend(use_jit_iop ? EmulationMode::JIT : EmulationMode::Interpreter);
 
     Scheduler scheduler;
-    bool draw = false;
-    int gs_vblank_event_id = scheduler.register_function([this](uint64_t cycles) {
-        this->bus.gs.untog_vblank();
-    });
 
-    int gs_vblank_task_id = scheduler.register_function([this, &vs, &scheduler, &gs_vblank_event_id](uint64_t cycles) {
-        scheduler.add_event(gs_vblank_event_id, GS_VBLANK_DELAY, "VBlank Delay");
+    bool draw = false;
+
+    int gs_vblank_event_id = scheduler.register_function([this](uint64_t cycles) {
         this->bus.gs.simul_vblank();
     });
 
+    int gs_vblank_task_id = scheduler.register_function([this, &scheduler, &gs_vblank_event_id](uint64_t cycles) {
+        scheduler.add_event(gs_vblank_event_id, GS_VBLANK_DELAY, "VBlank Delay");
+    });
+
     int vblank_end_id = scheduler.register_function([this, &draw](uint64_t cycles) {
-        //this->bus.gs.batch_draw();
+        this->bus.gs.untog_vblank();
         draw = true;
         frame_ended = true;
     });
@@ -936,7 +673,74 @@ void ImGui_Neo2::run(int argc, char **argv)
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImGui::DockSpaceOverViewport(0, viewport);
+
+        GLuint texID = 0;
+        // Get current framebuffer dimensions
+        int fbWidth  = this->bus.gs.framebuffer1.width;
+        int fbHeight = this->bus.gs.framebuffer1.height;
+
+        // If the framebuffer size has changed, update previous values and (optionally) reinitialize textures
+        if (fbWidth != prev_fb_width || fbHeight != prev_fb_height) {
+                    prev_fb_width = this->bus.gs.framebuffer1.width;
+                    prev_fb_height = this->bus.gs.framebuffer1.height;
+
+                    texID = this->bus.gs.opengl_.getFrameTexture();
+                    glBindTexture(GL_TEXTURE_2D, texID);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, static_cast<int>(this->bus.gs.framebuffer1.width), static_cast<int>(this->bus.gs.framebuffer1.height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glPixelStorei(GL_UNPACK_ROW_LENGTH, this->bus.gs.framebuffer1.fbw);
+                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, GL_RGBA, GL_UNSIGNED_BYTE, this->bus.gs.vram);
+                    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                }
+
+        if (this->bus.gs.render_mode == RenderMode::Software)
+        {
+            texID = this->bus.gs.opengl_.getFrameTexture();
+            glBindTexture(GL_TEXTURE_2D, texID);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, this->bus.gs.framebuffer1.fbw);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, GL_RGBA, GL_UNSIGNED_BYTE, this->bus.gs.vram);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+
+        // Use fixed native dimensions for display
+        const int nativeWidth  = 640;
+        const int nativeHeight = 480;
+
+        // Get window size from ImGui IO
+        float windowWidth  = io.DisplaySize.x;
+        float windowHeight = io.DisplaySize.y;
+
+        // Assume your menubar and status bar each use the height of one frame
+        float menubarHeight  = ImGui::GetFrameHeight();
+        float statusbarHeight = ImGui::GetFrameHeight();
+
+        // Compute the available area for the background (between menubar and status bar)
+        float availableWidth  = windowWidth;
+        float availableHeight = windowHeight - menubarHeight - statusbarHeight;
+
+        // Calculate the maximum integer scale factor that fits in the available area
+        int scaleFactor = std::max(1, (int)std::min( availableWidth  / (float)nativeWidth,
+                                                        availableHeight / (float)nativeHeight ));
+
+        // Compute the scaled dimensions based on the native 640x480 resolution
+        int scaledWidth  = nativeWidth  * scaleFactor;
+        int scaledHeight = nativeHeight * scaleFactor;
+
+        // Center the scaled image in the available area
+        float posX = (availableWidth - scaledWidth) * 0.5f;
+        float posY = menubarHeight + (availableHeight - scaledHeight) * 0.5f;
+
+        // Retrieve the current framebuffer texture ID (adjust according to your render mode)
+        texID = bus.gs.opengl_.getFrameTexture(); // or your method for software mode
+
+        // Draw the emulator “screen” as a background image using the native 640x480 dimensions (scaled up)
+        ImDrawList* bgDrawList = ImGui::GetBackgroundDrawList();
+        bgDrawList->AddImage((ImTextureID)(texID),
+                            ImVec2(posX, posY),
+                            ImVec2(posX + scaledWidth, posY + scaledHeight));
 
         // Menu Bar with Debug options
         if (ImGui::BeginMainMenuBar()) {
@@ -971,13 +775,20 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
                 ImGui::EndMenu();
             }
-            // Add a button to call simul_vblank
-    if (ImGui::Button("Simulate VBlank")) {
-        this->bus.gs.simul_vblank();
-    }
-    if (ImGui::Button("Untog VBlank")) {
-        this->bus.gs.untog_vblank();
-    }
+            std::string cur_render_mode = "Current Render Mode: ";
+            if (this->bus.gs.render_mode == RenderMode::Software) {
+                cur_render_mode += "Software";
+            }
+            else if (this->bus.gs.render_mode == RenderMode::OpenGL) {
+                cur_render_mode += "OpenGL";
+            }
+            if (ImGui::Button(cur_render_mode.c_str())) {
+                if (this->bus.gs.render_mode == RenderMode::Software) {
+                    this->bus.gs.set_render_mode(RenderMode::OpenGL);
+                } else if (this->bus.gs.render_mode == RenderMode::OpenGL) {
+                    this->bus.gs.set_render_mode(RenderMode::Software);
+                }
+            }
             ImGui::EndMainMenuBar();
         }
 
@@ -1034,11 +845,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
         if (show_textures) {
-            render_textures(nullptr, bus.gs);
-        }
-
-        if (show_framebuffer) {
-            render_fbgl(bus.gs);
+            render_textures(bus.gs, zoom_factor);
         }
 
         // Handle the file dialog for loading BIOS
@@ -1145,19 +952,30 @@ void ImGui_Neo2::run(int argc, char **argv)
                             scheduler.add_event(gs_vblank_task_id, VBLANK_START_CYCLES, "VBlank Start");
                             scheduler.add_event(vblank_end_id, PS2_CYCLES_PER_FRAME, "VBlank End");
                             
-                            while (!frame_ended && !stop_requested)
-                            {
-                                // Calculate run cycles
-                                unsigned int ee_cycles = scheduler.calculate_run_cycles();
+                            while (!frame_ended && !stop_requested) {
+                                // Calculate target cycles to run for this iteration
+                                unsigned int target_cycles = scheduler.calculate_run_cycles();
 
-                                // Update cycle counts
-                                if (!stop_requested) scheduler.update_cycle_counts();
-
-                                // Execute EE cycles
-                                if (!stop_requested) this->ee.execute_cycles(ee_cycles, nullptr);
-
-                                // Execute tasks
-                                if (!stop_requested) scheduler.process_events();
+                                // Record the starting cycle count (assumes core->cycles is updated by EE execution)
+                                uint64_t start_cycles = this->ee.cycles;
+                                
+                                // Execute the target number of cycles (this->ee.execute_cycles() will update core->cycles)
+                                if (!stop_requested) {
+                                    this->ee.execute_cycles(target_cycles, nullptr);
+                                }
+                                
+                                // Determine the actual number of cycles executed
+                                uint64_t executed_cycles = this->ee.cycles - start_cycles;
+                                
+                                // Update scheduler cycle counts with the real executed cycle count
+                                if (!stop_requested) {
+                                    scheduler.update_cycle_counts(executed_cycles);
+                                }
+                                
+                                // Process any pending scheduler events
+                                if (!stop_requested) {
+                                    scheduler.process_events();
+                                }
                             }
                         }
 
@@ -1166,6 +984,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                         status_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange for idle
                         is_running = false; // Emulation stopped
                     });
+
 
                     // Detach the thread to allow it to run independently
                     ee_thread.detach();
@@ -1188,11 +1007,6 @@ void ImGui_Neo2::run(int argc, char **argv)
             if (is_running) {
                 ImGui::BeginDisabled();  // Disables any widget between this call and EndDisabled
             }
-
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            ImVec2 center = ImVec2(p.x + 15, p.y + 15);
-            draw_list->AddTriangleFilled(ImVec2(center.x - 7, center.y - 7), ImVec2(center.x - 7, center.y + 7), ImVec2(center.x + 7, center.y), IM_COL32(255, 255, 255, 255));
 
             ImGui::SameLine();
 
@@ -1219,17 +1033,41 @@ void ImGui_Neo2::run(int argc, char **argv)
                 ImGui::EndDisabled();  // Re-enable widgets after this call
             }
 
+            ImGui::SameLine();
+            text_height = ImGui::GetTextLineHeight();
+            button_height = ImGui::GetFrameHeight();
+            vertical_offset = (text_height - button_height) / 2.0f;
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_offset);
+
+            {
+                // Get the full width of the status bar window.
+                float windowWidth = ImGui::GetWindowWidth();
+                // Calculate the size of the text you want to render.
+                ImVec2 fbTextSize = ImGui::CalcTextSize("Framebuffer: 0000x0000");
+                // Set a margin from the right edge (in pixels)
+                float margin = 5.0f;
+                // Set the cursor position X so that the text starts at (window width - text width - margin)
+                ImGui::SetCursorPosX(windowWidth - fbTextSize.x - margin);
+                // Render the framebuffer dimensions.
+                ImGui::Text("Framebuffer: %dx%d", this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height);
+            }
             ImGui::PopStyleColor(3);
             ImGui::End();
         }
 
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-        glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+        glClearColor(0.05f, 0.05f, 0.05f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        if (draw) { this->bus.gs.batch_draw(); draw = false; }
+        if (draw == true)
+        {
+            if (this->bus.gs.render_mode == RenderMode::OpenGL) this->bus.gs.opengl_.updateFromVram(this->bus.gs.vram, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, this->bus.gs.framebuffer1.fbw);
+            this->bus.gs.batch_draw();
+            draw = false;
+        }
+
         SDL_GL_SwapWindow(window);
     }
 #ifdef __EMSCRIPTEN__
