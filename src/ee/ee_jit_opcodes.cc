@@ -298,6 +298,7 @@ void EEJIT::initialize_opcode_table() {
     
     opcode_table[0x10].subfunc_map[0x10][0x02] = {&EEJIT::ee_jit_tlbwi, CopDefault};  // TLBWI opcode
     opcode_table[0x10].subfunc_map[0x10][0x18] = {&EEJIT::ee_jit_eret, CopDefault};  // ERET opcode
+    opcode_table[0x10].subfunc_map[0x10][0x38] = {&EEJIT::ee_jit_ei, CopDefault};  // EI opcode
     opcode_table[0x10].subfunc_map[0x10][0x39] = {&EEJIT::ee_jit_di, CopDefault};  // DI opcode
 
     opcode_table[0x11].rs_map[0x02] = {&EEJIT::ee_jit_cop1, CopDefault}; // COP1 opcode
@@ -337,6 +338,7 @@ void EEJIT::initialize_opcode_table() {
     opcode_table[0x2C].single_handler = {&EEJIT::ee_jit_sdl, Store}; // SDL opcode
     opcode_table[0x2d].single_handler = {&EEJIT::ee_jit_sdr, Store}; // SDR opcode
     opcode_table[0x2F].single_handler = {&EEJIT::ee_jit_cache, Default}; // CACHE opcode
+    opcode_table[0x31].single_handler = {&EEJIT::ee_jit_cop1, Store}; // SWC1 opcode
     opcode_table[0x37].single_handler = {&EEJIT::ee_jit_ld, Load}; // LD opcode
     opcode_table[0x39].single_handler = {&EEJIT::ee_jit_swc1, Store}; // SWC1 opcode
     opcode_table[0x3F].single_handler = {&EEJIT::ee_jit_sd, Store}; // SD opcode
@@ -3878,5 +3880,64 @@ void EEJIT::ee_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     );
 
     builder->CreateStore(result, rt_ptr);
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_ei(uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core) {
+    // Get the pointer to the COP0 Status register.
+    llvm::Value* cop0_base = builder->CreateIntToPtr(
+        builder->getInt64(reinterpret_cast<uint64_t>(&core->cop0)),
+        llvm::PointerType::getUnqual(builder->getInt8Ty())
+    );
+
+    llvm::Value* status_ptr = builder->CreateGEP(
+        builder->getInt32Ty(), // We access the 32-bit Status field.
+        cop0_base,
+        builder->getInt32(12 * 4) // Offset to Status (index 12 * 4 bytes)
+    );
+
+    // Load the current Status value.
+    llvm::Value* status = builder->CreateLoad(builder->getInt32Ty(), status_ptr);
+
+    // Extract relevant bits from Status.
+    llvm::Value* EDI = builder->CreateAnd(status, builder->getInt32(1 << 17)); // Bit 17
+    llvm::Value* EXL = builder->CreateAnd(status, builder->getInt32(1 << 1));  // Bit 1
+    llvm::Value* ERL = builder->CreateAnd(status, builder->getInt32(1 << 2));  // Bit 2
+    llvm::Value* KSU = builder->CreateAnd(status, builder->getInt32(0b11 << 3)); // Bits 3-4
+
+    // Create condition booleans.
+    llvm::Value* EDI_check = builder->CreateICmpNE(EDI, builder->getInt32(0));
+    llvm::Value* EXL_check = builder->CreateICmpNE(EXL, builder->getInt32(0));
+    llvm::Value* ERL_check = builder->CreateICmpNE(ERL, builder->getInt32(0));
+    llvm::Value* KSU_check = builder->CreateICmpEQ(KSU, builder->getInt32(0)); // Kernel mode check
+
+    // Condition: if (EDI || EXL || ERL || (KSU == 0))
+    llvm::Value* condition = builder->CreateOr(
+        builder->CreateOr(EDI_check, EXL_check),
+        builder->CreateOr(ERL_check, KSU_check)
+    );
+
+    // Create basic blocks for conditional branching.
+    llvm::BasicBlock* then_block = llvm::BasicBlock::Create(*context, "then", builder->GetInsertBlock()->getParent());
+    llvm::BasicBlock* else_block = llvm::BasicBlock::Create(*context, "else", builder->GetInsertBlock()->getParent());
+    llvm::BasicBlock* merge_block = llvm::BasicBlock::Create(*context, "merge", builder->GetInsertBlock()->getParent());
+
+    // Branch based on the condition.
+    builder->CreateCondBr(condition, then_block, else_block);
+
+    // THEN block: set EIE (bit 16) by OR'ing with (1 << 16)
+    builder->SetInsertPoint(then_block);
+    llvm::Value* set_EIE = builder->CreateOr(status, builder->getInt32(1 << 16));
+    builder->CreateStore(set_EIE, status_ptr);
+    builder->CreateBr(merge_block);
+
+    // ELSE block: do nothing.
+    builder->SetInsertPoint(else_block);
+    builder->CreateBr(merge_block);
+
+    // Merge block: continue execution.
+    builder->SetInsertPoint(merge_block);
+
+    // Emit the PC update.
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }

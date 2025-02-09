@@ -19,7 +19,7 @@ struct GS_Framebuffer {
 };
 
 enum class PrimitiveType {
-    Point,
+    Point = 0,
     Line,
     Triangle = 3,
     Sprite = 6,
@@ -115,14 +115,23 @@ public:
 
     // Renderer methods.
     // Software renderer.
+    void draw_point_software(const Vertex& vertex);
     void draw_triangle_software(const std::vector<Vertex>& vertices);
     void draw_sprite_software(const std::vector<Vertex>& vertices);
 
     // OpenGL renderer.
+    void draw_point_opengl(const Vertex& vertex, uint32_t width, uint32_t height, uint64_t scissor);
     void draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
     void draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
 
     // Branching methods.
+    void draw_point(const std::vector<Vertex>& vertices) {
+        if (render_mode == RenderMode::Software)
+            draw_point_software(vertices[0]);
+        else
+            draw_point_opengl(vertices[0], framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
+    }
+
     void draw_triangle(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
             draw_triangle_software(vertices);
