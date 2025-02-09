@@ -961,7 +961,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                                 
                                 // Execute the target number of cycles (this->ee.execute_cycles() will update core->cycles)
                                 if (!stop_requested) {
-                                    this->ee.execute_cycles(target_cycles, nullptr);
+                                    this->ee.execute_cycles(target_cycles, &breakpoints);
                                 }
                                 
                                 // Determine the actual number of cycles executed

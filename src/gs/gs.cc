@@ -694,6 +694,56 @@ void GS::handle_prim_selection(uint64_t prim) {
     vertex_count = 0;
 }
 
+void GS::draw_point_software(const Vertex& vertex) {
+    // Retrieve scissor values from the GS registers (assumed to be in SCISSOR_1).
+    uint64_t scissor = gs_registers[0x40];
+    int scax0 = scissor & 0x7ff;
+    int scax1 = (scissor >> 16) & 0x7ff;
+    int scay0 = (scissor >> 32) & 0x7ff;
+    int scay1 = (scissor >> 48) & 0x7ff;
+
+    // Clamp the point position to the scissor region.
+    int x = std::clamp(static_cast<int>(std::floor(vertex.x)), scax0, scax1);
+    int y = std::clamp(static_cast<int>(std::floor(vertex.y)), scay0, scay1);
+
+    // Retrieve z-buffer parameters from the GS registers (assumed to be in ZBUF_1).
+    uint64_t zbuf = gs_registers[0x4E];
+    uint32_t zbuf_base = (zbuf & 0x1FF) << 11;
+    uint32_t zbuf_format = (zbuf >> 24) & 0xF;
+    bool zbuf_mask = (zbuf >> 32) & 0x1;
+
+    // Convert the z-value (depth) to an integer.
+    uint32_t z_value = static_cast<uint32_t>(vertex.z);
+
+    // Compute the z-buffer index.
+    uint32_t z_index = zbuf_base + y * framebuffer1.width + x;
+
+    // Convert the color from vertex to XBGR order.
+    uint32_t converted_color = ((vertex.color & 0x000000FF) << 24) | // B -> XBGR's B
+                               ((vertex.color & 0x0000FF00) << 8)  | // G -> XBGR's G
+                               ((vertex.color & 0x00FF0000) >> 8)  | // R -> XBGR's R
+                               ((vertex.color & 0xFF000000) >> 24);   // A remains in place
+
+    // Perform z-buffer testing and write the pixel if the test passes.
+    if (!zbuf_mask) {
+        if (zbuf_format == 0x0 || zbuf_format == 0x1) { // PSMZ32 or PSMZ24
+            if (z_value >= vram[z_index]) {
+                vram[z_index] = z_value;
+                vram[y * framebuffer1.fbw + x] = converted_color;
+            }
+        } else if (zbuf_format == 0x2 || zbuf_format == 0xA) { // PSMZ16 or PSMZ16S
+            uint16_t* zbuf16 = reinterpret_cast<uint16_t*>(vram);
+            if (z_value >= zbuf16[z_index]) {
+                zbuf16[z_index] = static_cast<uint16_t>(z_value);
+                vram[y * framebuffer1.fbw + x] = converted_color;
+            }
+        }
+    } else {
+        // If z-buffering is disabled, write the pixel directly.
+        vram[y * framebuffer1.fbw + x] = converted_color;
+    }
+}
+
 void GS::draw_triangle_software(const std::vector<Vertex>& vertices) {
     if (vertices.size() < 3) {
         Logger::error("Not enough vertices to draw triangle");
@@ -937,6 +987,9 @@ void GS::batch_draw() {
         for (const Primitive& prim : prim_queue) {
             executed = true;
             switch (prim.type) {
+                case PrimitiveType::Point:
+                    draw_point(prim.vertices);
+                    break;
                 case PrimitiveType::Triangle:
                     draw_triangle(prim.vertices);
                     break;
@@ -944,7 +997,8 @@ void GS::batch_draw() {
                     draw_sprite(prim.vertices);
                     break;
                 default:
-                    Logger::error("Unsupported primitive type in batch_draw");
+                    std::string unkwn_prim = "Unsupported primitive type in batch_draw: " + format("{:d}", (int)prim.type);
+                    Logger::error(unkwn_prim.c_str());
                     Neo2::exit(1, Neo2::Subsystem::GS);
                     break;
             }
@@ -957,6 +1011,9 @@ void GS::batch_draw() {
     }
 }
 
+void GS::draw_point_opengl(const Vertex& vertex, uint32_t width, uint32_t height, uint64_t scissor) {
+	opengl_.draw_point_opengl(vertex, width, height, scissor);
+}
 
 void GS::draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
 	opengl_.draw_triangle_opengl(vertices, width, height, scissor);

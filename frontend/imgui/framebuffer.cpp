@@ -285,6 +285,76 @@ void FrameBuffer::updateFromVram(const uint32_t* vram, int width, int height, in
     GL_CHECK_ERROR();
 }
 
+void FrameBuffer::draw_point_opengl(const Vertex& vertex, uint32_t width, uint32_t height, uint64_t scissor) {
+    // Save current viewport
+    GLint oldViewport[4];
+    glGetIntegerv(GL_VIEWPORT, oldViewport);
+
+    // Set new viewport
+    glViewport(0, 0, width, height);
+
+    // Bind the framebuffer
+    Bind();
+
+    glEnable(GL_SCISSOR_TEST);
+
+    int scax0 = scissor & 0x7FF;
+    int scax1 = (scissor >> 16) & 0x7FF;
+    int scay0 = (scissor >> 32) & 0x7FF;
+    int scay1 = (scissor >> 48) & 0x7FF;
+
+    int ogl_scay0 = height - scay1 - 1;
+    int ogl_scay1 = height - scay0;
+    int ogl_height = ogl_scay1 - ogl_scay0;
+
+    glScissor(scax0, scay0, scax1 - scax0 + 1, ogl_height);
+
+    // Bind the VAO
+    glBindVertexArray(vao);
+
+    // Update the VBO with vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(Vertex), &vertex);
+
+    // Use the shader program
+    glUseProgram(shader_program);
+
+    // Compute and set the orthographic projection matrix
+    float left = 0.0f;
+    float right = static_cast<float>(width);
+    float top = 0.0f;
+    float bottom = static_cast<float>(height);
+    float near = -1.0f;
+    float far = 1.0f;
+    float ortho[16] = {
+         2.0f / (right - left),  0.0f,                0.0f,  0.0f,
+         0.0f,                  -2.0f / (bottom - top), 0.0f,  0.0f,
+         0.0f,                   0.0f,               -2.0f / (far - near),  0.0f,
+        -(right + left) / (right - left), (bottom + top) / (bottom - top), -(far + near) / (far - near), 1.0f
+    };
+
+    GLint projLoc = glGetUniformLocation(shader_program, "uProjection");
+    if (projLoc != -1) {
+        glUniformMatrix4fv(projLoc, 1, GL_FALSE, ortho);
+    } else {
+        std::cerr << "Warning: uProjection uniform not found!" << std::endl;
+    }
+
+    // Draw the vertex as a point.
+    glDrawArrays(GL_POINTS, 0, 1);
+
+    // Unbind
+    glUseProgram(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    glDisable(GL_SCISSOR_TEST);
+    Unbind();
+
+    // Restore original viewport
+    glViewport(oldViewport[0], oldViewport[1], oldViewport[2], oldViewport[3]);
+}
+
+
 void FrameBuffer::draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
     // Save current viewport
     GLint oldViewport[4];
