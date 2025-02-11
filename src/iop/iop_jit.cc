@@ -4,8 +4,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
-#include <llvm/ExecutionEngine/MCJIT.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -30,33 +29,18 @@ IOPJIT::IOPJIT(IOP* core) : core(core) {
     context = std::make_unique<llvm::LLVMContext>();
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 
-    // Create module
-    module = std::make_unique<llvm::Module>("iop_jit", *context);
-    
-    // Create execution engine with module ownership
-    std::string errStr;
-    llvm::Module* modulePtr = module.get(); // Keep raw pointer
-    
-    executionEngine = std::unique_ptr<llvm::ExecutionEngine>(
-        llvm::EngineBuilder(std::unique_ptr<llvm::Module>(modulePtr))
-            .setErrorStr(&errStr)
-            .setEngineKind(llvm::EngineKind::JIT)
-            .create());
-
-    if (!executionEngine) {
-        Logger::error("Failed to create ExecutionEngine: " + errStr);
+    // Create LLJIT instance
+    auto jit = llvm::orc::LLJITBuilder().create();
+    if (!jit) {
+        Logger::error("Failed to create LLJIT: " + llvm::toString(jit.takeError()));
+        printf("Failed to create LLJIT: %s\n", llvm::toString(jit.takeError()).c_str());
+        fflush(stdout);
         return;
     }
+    lljit = std::move(*jit);
 
     Logger::info("JIT initialization successful");
     initialize_opcode_table();
-
-    iop_read32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty()}, false);
-    iop_read32 = llvm::Function::Create(
-    iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", module.get());;
-    iop_write32_type = llvm::FunctionType::get(builder->getInt32Ty(), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
-    iop_write32 = llvm::Function::Create(
-    iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", module.get());;
 
     ready = true;
 }
@@ -64,14 +48,6 @@ IOPJIT::IOPJIT(IOP* core) : core(core) {
 IOPJIT::~IOPJIT() {
     if (builder) {
         builder.reset();
-    }
-
-    if (executionEngine) {
-        if (module) {
-            executionEngine->removeModule(module.get());
-            module.reset();
-        }
-        executionEngine.reset();
     }
 
     if (context) {
@@ -264,20 +240,25 @@ CompiledBlock* IOPJIT::compile_block_(uint32_t start_pc, bool single_instruction
     new_module->print(os, nullptr);
     os.flush();
 
-    // Add the module to the execution engine
-    if (!executionEngine) {
-        Logger::error("Execution engine is not initialized");
+    // Add the module to the LLJIT
+    if (auto err = lljit->addIRModule(llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>()))) {
+        // Correctly pass the context
+        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
+        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
+        fflush(stdout);
         return nullptr;
     }
 
-    executionEngine->addModule(std::move(new_module));
-    executionEngine->finalizeObject();
-    
-    auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
-    if (!exec_fn) {
-        Logger::error("Failed to JIT compile function");
+    // Lookup the function in the JIT
+    auto sym = lljit->lookup("exec_" + std::to_string(start_pc));
+    if (!sym) {
+        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
+        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
+        fflush(stdout);
         return nullptr;
     }
+
+    auto exec_fn = (void (*)())sym->getValue(); // Use getValue() instead of getAddress()
 
     // Create and return the compiled block
     auto block = new CompiledBlock();
@@ -370,22 +351,27 @@ CompiledBlock* IOPJIT::compile_block(uint32_t start_pc, bool single_instruction)
     new_module->print(os, nullptr);
     os.flush();
 
-    // Add module to execution engine
-    if (!executionEngine) {
-        Logger::error("Execution engine is not initialized");
+    // Add the module to the LLJIT
+    if (auto err = lljit->addIRModule(llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>()))) {
+        // Correctly pass the context
+        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
+        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
+        fflush(stdout);
         return nullptr;
     }
 
-    executionEngine->addModule(std::move(new_module));
-    executionEngine->finalizeObject();
-    
-    auto exec_fn = (void (*)())executionEngine->getPointerToFunction(func);
-    if (!exec_fn) {
-        Logger::error("Failed to JIT compile function");
+    // Lookup the function in the JIT
+    auto sym = lljit->lookup("exec_" + std::to_string(start_pc));
+    if (!sym) {
+        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
+        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
+        fflush(stdout);
         return nullptr;
     }
 
-    // Create and return compiled block
+    auto exec_fn = (void (*)())sym->getValue(); // Use getValue() instead of getAddress()
+
+    // Create and return the compiled block
     auto block = new CompiledBlock();
     block->start_pc = start_pc;
     block->end_pc = end_pc;
