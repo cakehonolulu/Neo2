@@ -3,7 +3,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <cpu/cpu.hh>
 #include <memory>
 #include <unordered_map>
@@ -71,7 +71,8 @@ private:
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
-    std::unique_ptr<llvm::ExecutionEngine> executionEngine;
+    std::unique_ptr<llvm::orc::LLJIT> lljit;
+
     llvm::FunctionType* iop_read32_type;
     llvm::Function* iop_read32;
     llvm::FunctionType* iop_write32_type;

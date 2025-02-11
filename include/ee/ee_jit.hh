@@ -3,7 +3,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <cpu/cpu.hh>
 #include <cpu/breakpoint.hh>
 #include <memory>
@@ -11,8 +11,6 @@
 #include <vector>
 #include <cpu/breakpoint.hh>
 #include <log/log.hh>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/ExecutionEngine/MCJIT.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -123,7 +121,7 @@ private:
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
-    std::unique_ptr<llvm::ExecutionEngine> executionEngine;
+    std::unique_ptr<llvm::orc::LLJIT> lljit;
 
     llvm::FunctionType* ee_write8_type;
     llvm::Function* ee_write8;
@@ -179,7 +177,7 @@ private:
 
     void initialize_opcode_table();
 
-    void setup_ee_jit_primitives();
+    void setup_ee_jit_primitives(std::unique_ptr<llvm::Module>& new_module);
 
     void ee_jit_level1_exception(EE* core, uint32_t cause, uint32_t& current_pc);
 
