@@ -18,6 +18,8 @@ endif()
 
 if(WIN32 OR _WIN32)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /clang:-std=c++23")
+file(DOWNLOAD "https://gist.githubusercontent.com/Nax/3c4e4de87fa53bd3659b8ca32c27a339/raw/d9d3e45d639c6e60b0fe440865807064688f3b97/elf.h"
+                  "${CMAKE_SOURCE_DIR}/include/elf.h")
 else()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -std=c++2b")
 endif()

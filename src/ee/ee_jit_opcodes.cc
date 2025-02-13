@@ -13,7 +13,6 @@
 #include <llvm/IR/Verifier.h>
 #include <sstream>
 #include <thread>
-#include <unistd.h>
 
 void EEJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = {&EEJIT::ee_jit_sll, Default}; // SLL opcode

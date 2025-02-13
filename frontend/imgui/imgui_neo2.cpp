@@ -17,7 +17,7 @@
 #include "imgui_impl_opengl3.h"
 #include "log/log_imgui.hh"
 #include <SDL3/SDL.h>
-#include <GL/glx.h>
+//#include <GL/glx.h>
 #include <stdio.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
@@ -26,10 +26,6 @@
 #endif
 #include "ImGuiFileDialog.h"
 #include <argparse/argparse.hpp>
-
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 
 #include "scheduler.hh"
 #include "constants.hh"

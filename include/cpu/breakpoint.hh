@@ -23,7 +23,6 @@ public:
     void notify_breakpoint(uint32_t address) {
         std::lock_guard<std::mutex> lock(breakpoint_mutex);
         Logger::info("Breakpoint hit at address: 0x" + format("{:08X}", address));
-        sleep(2);
         breakpoint_hit = true;
         breakpoint_address = address;
     }

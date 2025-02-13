@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iostream>
 #include <cstddef> // for offsetof
-#include <GL/glx.h>
+#include <SDL3/SDL.h>
 #include <glad/gl.h>  // Include glad for OpenGL functions
 #include <log/log.hh>
 
@@ -21,7 +21,8 @@ FrameBuffer::FrameBuffer(float width, float height)
 
 void FrameBuffer::init(float width, float height) {
     
-    if (!gladLoadGL((GLADloadfunc)glXGetProcAddress)) {
+    if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress))
+    {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return;
     }

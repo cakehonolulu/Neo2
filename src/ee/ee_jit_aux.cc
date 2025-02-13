@@ -13,7 +13,6 @@
 #include <llvm/IR/Verifier.h>
 #include <sstream>
 #include <thread>
-#include <unistd.h>
 
 #ifdef _WIN32
 #define EXPORT __declspec(dllexport)
