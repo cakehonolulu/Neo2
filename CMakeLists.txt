@@ -15,7 +15,12 @@ if (SANITIZER)
     add_link_options(-fsanitize=address,leak,undefined,pointer-compare,pointer-subtract)
 endif()
 
+
+if(WIN32 OR _WIN32)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /clang:-std=c++23")
+else()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -std=c++2b")
+endif()
 
 find_package(LLVM REQUIRED CONFIG)
 include_directories(${LLVM_INCLUDE_DIRS})
@@ -36,6 +41,10 @@ target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/argparse/include)
 target_include_directories(neo2 PRIVATE ${PROJECT_SOURCE_DIR}/external/imgui_club/imgui_memory_editor)
 
+if(WIN32 OR _WIN32)
+target_link_libraries(neo2 PRIVATE LLVMWindowsManifest LLVMXRay LLVMLibDriver LLVMDlltoolDriver LLVMTextAPIBinaryReader LLVMCoverage LLVMLineEditor LLVMX86TargetMCA LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86Info LLVMOrcDebugging LLVMOrcJIT LLVMWindowsDriver LLVMMCJIT LLVMJITLink LLVMInterpreter LLVMExecutionEngine LLVMRuntimeDyld LLVMOrcTargetProcess LLVMOrcShared LLVMDWP LLVMDebugInfoLogicalView LLVMDebugInfoGSYM LLVMOption LLVMObjectYAML LLVMObjCopy LLVMMCA LLVMMCDisassembler LLVMLTO LLVMPasses LLVMHipStdPar LLVMCFGuard LLVMCoroutines LLVMipo LLVMVectorize LLVMLinker LLVMInstrumentation LLVMFrontendOpenMP LLVMFrontendOffloading LLVMFrontendOpenACC LLVMFrontendHLSL LLVMFrontendDriver LLVMExtensions LLVMDWARFLinkerParallel LLVMDWARFLinkerClassic LLVMDWARFLinker LLVMGlobalISel LLVMMIRParser LLVMAsmPrinter LLVMSelectionDAG LLVMCodeGen LLVMTarget LLVMObjCARCOpts LLVMCodeGenTypes LLVMIRPrinter LLVMInterfaceStub LLVMFileCheck LLVMFuzzMutate LLVMScalarOpts LLVMInstCombine LLVMAggressiveInstCombine LLVMTransformUtils LLVMBitWriter LLVMAnalysis LLVMProfileData LLVMSymbolize LLVMDebugInfoBTF LLVMDebugInfoPDB LLVMDebugInfoMSF LLVMDebugInfoDWARF LLVMObject LLVMTextAPI LLVMMCParser LLVMIRReader LLVMAsmParser LLVMMC LLVMDebugInfoCodeView LLVMBitReader LLVMFuzzerCLI LLVMCore LLVMRemarks LLVMBitstreamReader LLVMBinaryFormat LLVMTargetParser LLVMTableGen LLVMSupport LLVMDemangle)
+else()
 target_link_libraries(neo2 PRIVATE LLVM)
+endif()
 target_link_libraries(neo2 PRIVATE ${GLEW_LIBRARIES}) # Link GLEW library
 target_link_options(neo2 PRIVATE -Wl,--export-dynamic)

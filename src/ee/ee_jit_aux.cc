@@ -15,6 +15,12 @@
 #include <thread>
 #include <unistd.h>
 
+#ifdef _WIN32
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT
+#endif
+
 static const char* ee_get_syscall(int n) {
     switch (n) {
         case 0x01: return "void ResetEE(int reset_flag)";
@@ -84,7 +90,7 @@ static const char* ee_get_syscall(int n) {
     return "<unknown>";
 }
 
-extern "C" void ee_print_syscall(EE* core, uint32_t current_pc, uint32_t syscall_nr) {
+extern "C" EXPORT void ee_print_syscall(EE* core, uint32_t current_pc, uint32_t syscall_nr) {
     Logger::error(ee_get_syscall(syscall_nr));
 }
 
@@ -106,59 +112,59 @@ void update_address_mapping(EE* core, uint32_t entry_hi, uint32_t page_mask, uin
     }
 }
 
-extern "C" void ee_update_address_mapping(EE* core, uint32_t entry_hi, uint32_t page_mask, uint32_t entry_lo0, uint32_t entry_lo1, bool global) {
+extern "C" EXPORT void ee_update_address_mapping(EE* core, uint32_t entry_hi, uint32_t page_mask, uint32_t entry_lo0, uint32_t entry_lo1, bool global) {
     update_address_mapping(core, entry_hi, page_mask, entry_lo0, entry_lo1, global);
 }
 
-extern "C" void ee_write32_dbg(EE* core, uint32_t addr, uint32_t value, uint32_t pc) {
+extern "C" EXPORT void ee_write32_dbg(EE* core, uint32_t addr, uint32_t value, uint32_t pc) {
     core->bus->write32_dbg(addr, value, pc);
 }
 
-extern "C" void ee_write8(EE* core, uint32_t addr, uint8_t value) {
+extern "C" EXPORT void ee_write8(EE* core, uint32_t addr, uint8_t value) {
     core->bus->write8(addr, value);
 }
 
-extern "C" void ee_write16(EE* core, uint32_t addr, uint16_t value) {
+extern "C" EXPORT void ee_write16(EE* core, uint32_t addr, uint16_t value) {
     core->bus->write16(addr, value);
 }
 
-extern "C" void ee_write32(EE* core, uint32_t addr, uint32_t value) {
+extern "C" EXPORT void ee_write32(EE* core, uint32_t addr, uint32_t value) {
     core->bus->write32(addr, value);
 }
 
-extern "C" void ee_write64(EE* core, uint32_t addr, uint64_t value) {
+extern "C" EXPORT void ee_write64(EE* core, uint32_t addr, uint64_t value) {
     core->bus->write64(addr, value);
 }
 
-extern "C" void ee_write128(EE* core, uint32_t addr, uint128_t value) {
+extern "C" EXPORT void ee_write128(EE* core, uint32_t addr, uint128_t value) {
     core->bus->write128(addr, value);
 }
 
-extern "C" uint8_t ee_read8(EE* core, uint32_t addr) {
+extern "C" EXPORT uint8_t ee_read8(EE* core, uint32_t addr) {
     return core->bus->read8(addr);
 }
 
-extern "C" uint16_t ee_read16(EE* core, uint32_t addr) {
+extern "C" EXPORT uint16_t ee_read16(EE* core, uint32_t addr) {
     return core->bus->read16(addr);
 }
 
-extern "C" uint32_t ee_read32(EE* core, uint32_t addr) {
+extern "C" EXPORT uint32_t ee_read32(EE* core, uint32_t addr) {
     return core->bus->read32(addr);
 }
 
-extern "C" uint64_t ee_read64(EE* core, uint32_t addr) {
+extern "C" EXPORT uint64_t ee_read64(EE* core, uint32_t addr) {
     return core->bus->read64(addr);
 }
 
-extern "C" uint128_t ee_read128(EE* core, uint32_t addr) {
+extern "C" EXPORT uint128_t ee_read128(EE* core, uint32_t addr) {
     return core->bus->read128(addr);
 }
 
-extern "C" void ee_tlb_write(EE* core, uint32_t index, uint32_t PageMask, uint32_t EntryHi, uint32_t EntryLo0, uint32_t EntryLo1) {
+extern "C" EXPORT void ee_tlb_write(EE* core, uint32_t index, uint32_t PageMask, uint32_t EntryHi, uint32_t EntryLo0, uint32_t EntryLo1) {
     core->bus->tlb.write_entry(index, PageMask, EntryHi, EntryLo0, EntryLo1);
 }
 
-extern "C" void ee_load_elf(EE* core) {
+extern "C" EXPORT void ee_load_elf(EE* core) {
     core->load_elf(core->elf_path);
 }
 
