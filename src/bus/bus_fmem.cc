@@ -3,9 +3,6 @@
 #include <ee/sio/sio.hh>
 #include <log/log.hh>
 #include <cstring>
-#include <execinfo.h>
-#include <cxxabi.h>
-#include <unistd.h>
 #include <cstdio>
 #include <neo2.hh>
 

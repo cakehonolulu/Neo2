@@ -12,7 +12,6 @@
 #include <llvm/IR/Verifier.h>
 #include <sstream>
 #include <thread>
-#include <unistd.h>
 
 #if __has_include(<format>)
 #include <format>

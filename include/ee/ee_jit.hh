@@ -15,7 +15,6 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Verifier.h>
-#include <unistd.h>
 
 #define Default     9
 #define Branch      11
