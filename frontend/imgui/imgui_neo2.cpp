@@ -13,27 +13,163 @@
 #include "frontends/imgui/imgui_debug.hh"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
+#include "imgui_impl_sdlgpu3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_impl_opengl3.h"
 #include "log/log_imgui.hh"
 #include <SDL3/SDL.h>
-//#include <GL/glx.h>
+#include <SDL3/SDL_surface.h>
 #include <stdio.h>
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-#include <SDL3/SDL_opengles2.h>
-#else
-#include <SDL3/SDL_opengl.h>
-#endif
+
 #include "ImGuiFileDialog.h"
 #include <argparse/argparse.hpp>
 
 #include "scheduler.hh"
 #include "constants.hh"
 
-struct MyRect {
-    ImVec2 Min;
-    ImVec2 Max;
-};
+SDL_GPUGraphicsPipeline *hw_pipeline = nullptr;
+SDL_GPUBuffer *hw_vertex_buffer = nullptr;
+
+SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, const char *filePath, SDL_GPUShaderStage stage)
+{
+    // Load the compiled shader file into memory.
+    size_t codeSize = 0;
+    void *code = SDL_LoadFile(filePath, &codeSize);
+    if (!code)
+    {
+        SDL_Log("LoadCompiledShader: Failed to load shader file '%s': %s", filePath, SDL_GetError());
+        return nullptr;
+    }
+
+    SDL_GPUShaderFormat backendFormats = SDL_GetGPUShaderFormats(gpu_device);
+
+    // Fill in the shader create info.
+    SDL_GPUShaderCreateInfo shaderInfo;
+    SDL_zero(shaderInfo);
+    shaderInfo.code = reinterpret_cast<const Uint8 *>(code);
+    shaderInfo.code_size = codeSize;
+    shaderInfo.entrypoint = "main"; // Entry point function name
+    // For the D3D12 backend, we use DXIL.
+    shaderInfo.stage = stage;
+    // Set these counts as needed by your shaders.
+    shaderInfo.num_samplers = 0;
+    shaderInfo.num_uniform_buffers = 0;
+
+    if (backendFormats & SDL_GPU_SHADERFORMAT_SPIRV)
+    {
+        printf("SPIRV Shader\n");
+        shaderInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    }
+    else if (backendFormats & SDL_GPU_SHADERFORMAT_DXBC)
+    {
+        printf("DXBC Shader\n");
+        shaderInfo.format = SDL_GPU_SHADERFORMAT_DXBC;
+    }
+    else if (backendFormats & SDL_GPU_SHADERFORMAT_DXIL)
+    {
+        printf("DXIL Shader\n");
+        shaderInfo.format = SDL_GPU_SHADERFORMAT_DXIL;
+    }
+    else
+    {
+        SDL_Log("%s", "Unrecognized backend shader format!");
+        return NULL;
+    }
+
+    // Create the shader.
+    SDL_GPUShader *shader = SDL_CreateGPUShader(gpu_device, &shaderInfo);
+    if (!shader)
+    {
+        SDL_Log("LoadCompiledShader: Failed to create shader from file '%s': %s", filePath, SDL_GetError());
+    }
+
+    // Free the loaded shader code since SDL_CreateGPUShader copies it.
+    SDL_free(code);
+    return shader;
+}
+
+SDL_GPUShader *CompileShader(SDL_GPUDevice *gpu_device, const char *source, SDL_GPUShaderStage stage)
+{
+    // Fill in the shader create info.
+    SDL_GPUShaderCreateInfo shaderInfo;
+    SDL_zero(shaderInfo);
+    shaderInfo.code_size = strlen(source) + 1; // including null terminator
+    shaderInfo.code = reinterpret_cast<const Uint8 *>(source);
+    // For simplicity, use "main" as the entry point.
+    shaderInfo.entrypoint = "main";
+    // Assume for this example that our device accepts our GLSL as SPIR-V (in a real app, precompile to SPIR-V or DXIL).
+    shaderInfo.format = SDL_GPU_SHADERFORMAT_DXIL;
+    shaderInfo.stage = stage;
+    shaderInfo.num_samplers = 1;        // Adjust if needed.
+    shaderInfo.num_uniform_buffers = 1; // For example, for a projection matrix.
+
+    SDL_GPUShader *shader = SDL_CreateGPUShader(gpu_device, &shaderInfo);
+    if (!shader)
+    {
+        SDL_Log("Failed to create shader: %s", SDL_GetError());
+    }
+    return shader;
+}
+
+// --- Setup the graphics pipeline ---
+SDL_GPUGraphicsPipeline *CreatePipeline(SDL_GPUDevice *gpu_device, SDL_Window *window, SDL_GPUShader *vertexShader,
+                                        SDL_GPUShader *fragmentShader)
+{
+    SDL_GPUGraphicsPipelineCreateInfo pipelineInfo;
+    SDL_zero(pipelineInfo);
+
+    // Setup the color target info.
+    pipelineInfo.target_info.num_color_targets = 1;
+    SDL_GPUColorTargetDescription colorTargetDesc;
+    SDL_zero(colorTargetDesc);
+    colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(gpu_device, window);
+    pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+
+    // Setup the vertex input state.
+    SDL_GPUVertexBufferDescription vbDesc;
+    SDL_zero(vbDesc);
+    vbDesc.slot = 0;
+    vbDesc.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+    vbDesc.pitch = sizeof(float) * 3 + sizeof(Uint32); // 3 floats (position) + 1 uint (color)
+
+    // Two vertex attributes: position and color.
+    SDL_GPUVertexAttribute attributes[2];
+    SDL_zero(attributes[0]);
+    attributes[0].location = 0;
+    attributes[0].buffer_slot = 0;
+    attributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+    attributes[0].offset = 0;
+
+    SDL_zero(attributes[1]);
+    attributes[1].location = 1;
+    attributes[1].buffer_slot = 0;
+    // Use UINT for the raw 32-bit color.
+    attributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_UINT;
+    attributes[1].offset = sizeof(float) * 3;
+
+    SDL_GPUVertexInputState vertexInputState;
+    SDL_zero(vertexInputState);
+    vertexInputState.vertex_buffer_descriptions = &vbDesc;
+    vertexInputState.num_vertex_buffers = 1;
+    vertexInputState.vertex_attributes = attributes;
+    vertexInputState.num_vertex_attributes = 2;
+
+    pipelineInfo.vertex_input_state = vertexInputState;
+    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+
+    // Set the shaders.
+    pipelineInfo.vertex_shader = vertexShader;
+    pipelineInfo.fragment_shader = fragmentShader;
+
+    printf("CreatePipeline: Created all aux. structs\n");
+    // Create the pipeline.
+    SDL_GPUGraphicsPipeline *pipeline = SDL_CreateGPUGraphicsPipeline(gpu_device, &pipelineInfo);
+    if (!pipeline)
+    {
+        SDL_Log("CreatePipeline: Failed to create graphics pipeline: %s", SDL_GetError());
+    }
+    return pipeline;
+}
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -47,295 +183,14 @@ void ImGui_Neo2::init()
     Logger::debug("Initializing ImGui frontend...\n");
 }
 
-unsigned int create_texture_from_vram(GS& gs, const GS::Texture& texture) {
-    unsigned int texture_id;
-    glGenTextures(1, &texture_id);
-    glBindTexture(GL_TEXTURE_2D, texture_id);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, gs.framebuffer1.fbw);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, static_cast<int>(texture.width), static_cast<int>(texture.height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texture.width, texture.height, GL_RGBA, GL_UNSIGNED_BYTE, gs.vram + texture.address);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    return texture_id;
-}
-
-void render_textures(GS& gs, float zoom_factor) {
-    ImGui::Begin("Textures", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-
-    const auto& textures = gs.get_textures();
-    static int selected_texture_index = -1;
-    static std::vector<bool> texture_windows_open(textures.size(), false);
-    static std::vector<unsigned int> opengl_textures(textures.size(), 0);
-
-    ImGui::Text("Available Textures:");
-    ImGui::Separator();
-
-    for (size_t i = 0; i < textures.size(); ++i) {
-        const auto& texture = textures[i];
-        if (ImGui::Selectable(texture.name.c_str(), selected_texture_index == static_cast<int>(i))) {
-            selected_texture_index = static_cast<int>(i);
-            texture_windows_open[i] = true;
-            if (opengl_textures[i] == 0) {
-                opengl_textures[i] = create_texture_from_vram(gs, texture);
-            }
-        }
-    }
-
-    ImGui::Separator();
-
-    for (size_t i = 0; i < textures.size(); ++i) {
-        if (texture_windows_open[i]) {
-            const auto& texture = textures[i];
-            bool open = texture_windows_open[i];
-            ImGui::Begin(texture.name.c_str(), &open, ImGuiWindowFlags_AlwaysAutoResize);
-            texture_windows_open[i] = open;
-
-            ImGui::Text("Address: 0x%08X", texture.address);
-            ImGui::Text("Width: %d", texture.width);
-            ImGui::Text("Height: %d", texture.height);
-
-            std::string format;
-
-            switch (texture.format) {
-                case 0x00:
-                    format="PSMCT32";
-                    break;
-                case 0x01:
-                    format="PSMCT24";
-                    break;
-                case 0x02:
-                    format="PSMCT16";
-                    break;
-                case 0x0A:
-                    format="PSMCT16S";
-                    break;
-                case 0x13:
-                    format="PSMCT8";
-                    break;
-                case 0x14:
-                    format="PSMCT4";
-                    break;
-                case 0x1B:
-                    format="PSMCT8H";
-                    break;
-                case 0x24:
-                    format="PSMCT4HL";
-                    break;
-                case 0x2C:
-                    format="PSMCT4HH";
-                    break;
-                case 0x30:
-                    format="PSMZ32";
-                    break;
-                case 0x31:
-                    format="PSMZ24";
-                    break;
-                case 0x32:
-                    format="PSMZ16";
-                    break;
-                case 0x3A:
-                    format="PSMZ16S";
-                    break;
-                default:
-                    format="Unknown";
-                    break;
-            }
-            ImGui::Text("Format: %s", format.c_str());
-
-            ImVec2 texture_size = ImVec2(texture.width * zoom_factor, texture.height * zoom_factor);
-            ImGui::Image((ImTextureID)(opengl_textures[i]), texture_size);
-
-            ImGui::End();
-
-            if (!open) {
-                //glDeleteTextures(1, &opengl_textures[i]);
-                //opengl_textures[i] = 0;
-            }
-        }
-    }
-
-    ImGui::End();
-}
-
-// Compute a bounding rectangle for a set of vertices.
-MyRect compute_bounding_rect(const std::vector<Vertex>& vertices) {
-    float min_x = FLT_MAX, min_y = FLT_MAX;
-    float max_x = -FLT_MAX, max_y = -FLT_MAX;
-    for (const Vertex& v : vertices) {
-        if (v.x < min_x) min_x = v.x;
-        if (v.y < min_y) min_y = v.y;
-        if (v.x > max_x) max_x = v.x;
-        if (v.y > max_y) max_y = v.y;
-    }
-    return MyRect{ImVec2(min_x, min_y), ImVec2(max_x, max_y)};
-}
-
-// Helper to compute an average color from the vertices (assumes color stored as 0xRRGGBBAA).
-ImVec4 compute_average_color(const std::vector<Vertex>& vertices) {
-    uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-    for (const Vertex& v : vertices) {
-        uint8_t r = (v.color >> 24) & 0xFF;
-        uint8_t g = (v.color >> 16) & 0xFF;
-        uint8_t b = (v.color >> 8) & 0xFF;
-        uint8_t a = v.color & 0xFF;
-        sumR += r;
-        sumG += g;
-        sumB += b;
-        sumA += a;
-    }
-    size_t count = vertices.size();
-    return ImVec4(
-        static_cast<float>(sumR) / (count * 255.0f),
-        static_cast<float>(sumG) / (count * 255.0f),
-        static_cast<float>(sumB) / (count * 255.0f),
-        static_cast<float>(sumA) / (count * 255.0f)
-    );
-}
-
-// Render the primitive viewer window, including a preview with framebuffer info.
-void render_primitive_viewer(GS& gs) {
-    ImGui::Begin("Primitive Viewer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-
-    // Retrieve a copy of the primitives.
-    std::vector<Primitive> primitives = gs.get_queued_primitives();
-
-    ImGui::Text("Queued Primitives: %zu", primitives.size());
-    ImGui::Separator();
-
-    // Display some framebuffer info.
-    ImGui::Text("Framebuffer 1: %dx%d, Format: %d, FBW: %d", 
-                gs.framebuffer1.width, gs.framebuffer1.height, 
-                gs.framebuffer1.format, gs.framebuffer1.fbw);
-    ImGui::Separator();
-
-    // Retrieve scissor values from the GS registers (assumed to be in SCISSOR_1).
-    uint64_t scissor = gs.gs_registers[0x40];
-    int scax0 = scissor & 0x7ff;
-    int scax1 = (scissor >> 16) & 0x7ff;
-    int scay0 = (scissor >> 32) & 0x7ff;
-    int scay1 = (scissor >> 48) & 0x7ff;
-
-    for (size_t i = 0; i < primitives.size(); ++i) {
-        const Primitive& prim = primitives[i];
-
-        std::string prim_type_str;
-        switch (prim.type) {
-            case PrimitiveType::Point:      prim_type_str = "Point"; break;
-            case PrimitiveType::Line:       prim_type_str = "Line"; break;
-            case PrimitiveType::Triangle:   prim_type_str = "Triangle"; break;
-            case PrimitiveType::Sprite:     prim_type_str = "Sprite"; break;
-            default:                        prim_type_str = "Unknown"; break;
-        }
-
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::CollapsingHeader((prim_type_str + " #" + std::to_string(i)).c_str())) {
-            ImGui::Text("Vertex Count: %zu", prim.vertices.size());
-
-            ImVec4 avg_color = compute_average_color(prim.vertices);
-            ImGui::ColorButton("Color", avg_color);
-
-            for (size_t v = 0; v < prim.vertices.size() && v < 10; ++v) {
-                const Vertex& vert = prim.vertices[v];
-                std::ostringstream oss;
-                oss << "V" << v << ": ("
-                    << std::fixed << std::setprecision(1)
-                    << vert.x << ", " << vert.y << ", " << vert.z << ")"
-                    << " Color: 0x" << std::hex << std::setw(8) << std::setfill('0') << vert.color;
-                ImGui::Text("%s", oss.str().c_str());
-            }
-
-            // *** Dynamic Preview Area ***
-            float fb_width = static_cast<float>(gs.framebuffer1.width);
-            float fb_height = static_cast<float>(gs.framebuffer1.height);
-            if (fb_width > 0 && fb_height > 0) {
-                float available_width = ImGui::GetContentRegionAvail().x;
-
-                // Scale to fit the available width while maintaining aspect ratio
-                float scale = available_width / fb_width;
-                float preview_w = available_width;
-                float preview_h = fb_height * scale;
-
-                // Limit preview height to prevent excessive stretching
-                if (preview_h > 400.0f) { // Arbitrary max height to avoid oversized previews
-                    preview_h = 400.0f;
-                    scale = preview_h / fb_height;
-                }
-
-                // Begin child window for the preview
-                ImGui::Text("Preview:");
-                ImGui::BeginChild("PreviewCanvas", ImVec2(preview_w, preview_h), true);
-                ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-
-                // ** Centered Framebuffer **
-                float fb_draw_w = fb_width * scale;
-                float fb_draw_h = fb_height * scale;
-                float fb_offset_x = canvas_p0.x + (preview_w - fb_draw_w) * 0.5f;
-                float fb_offset_y = canvas_p0.y + (preview_h - fb_draw_h) * 0.5f;
-
-                // Draw a dark background
-                draw_list->AddRectFilled(canvas_p0, 
-                                         ImVec2(canvas_p0.x + preview_w, canvas_p0.y + preview_h), 
-                                         IM_COL32(50, 50, 50, 255));
-
-                // Draw the framebuffer boundary (Red)
-                draw_list->AddRect(ImVec2(fb_offset_x, fb_offset_y),
-                                   ImVec2(fb_offset_x + fb_draw_w, fb_offset_y + fb_draw_h),
-                                   IM_COL32(255, 0, 0, 255), 0.0f, 0, 3.0f);
-
-                // Debug Info
-                ImGui::Text("FB Pos: (%.1f, %.1f) Size: (%.1f x %.1f)", 
-                            fb_offset_x, fb_offset_y, fb_draw_w, fb_draw_h);
-
-                // ** Transform Function **
-                auto transform = [=](const ImVec2& pos) -> ImVec2 {
-                    return ImVec2(pos.x * scale + fb_offset_x, pos.y * scale + fb_offset_y);
-                };
-
-                // ** Draw Primitives with Scissor Test **
-                if (prim.type == PrimitiveType::Triangle && prim.vertices.size() >= 3) {
-                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
-                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
-                    ImVec2 p2 = transform(ImVec2(prim.vertices[2].x, prim.vertices[2].y));
-
-
-                    draw_list->AddTriangle(p0, p1, p2, IM_COL32(255, 255, 255, 255), 2.0f);
-                }
-                else if (prim.type == PrimitiveType::Sprite && prim.vertices.size() >= 2) {
-                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
-                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
-
-                    draw_list->AddRect(p0, p1, IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
-                }
-                else if (prim.type == PrimitiveType::Line && prim.vertices.size() >= 2) {
-                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
-                    ImVec2 p1 = transform(ImVec2(prim.vertices[1].x, prim.vertices[1].y));
-
-                   
-                    draw_list->AddLine(p0, p1, IM_COL32(255, 255, 255, 255), 2.0f);
-                }
-                else if (prim.type == PrimitiveType::Point && !prim.vertices.empty()) {
-                    ImVec2 p0 = transform(ImVec2(prim.vertices[0].x, prim.vertices[0].y));
-
-                    draw_list->AddCircleFilled(p0, 3.0f, IM_COL32(255, 255, 255, 255));
-                }
-                ImGui::EndChild();
-            }
-        }
-        ImGui::PopID();
-    }
-
-    ImGui::End();
-}
-
 void ImGui_Neo2::run(int argc, char **argv)
 {
     Disassembler disassembler;
+    SDL_GPUTexture *swapchain_texture, *emu_texure = nullptr;
+    SDL_Surface *vram = nullptr;
+    SDL_GPUCommandBuffer *command_buffer = nullptr;
+
+    SDL_GPUBuffer *quad_vertex_buffer = nullptr;
 
     float zoom_factor = 1.0f;
 
@@ -424,6 +279,11 @@ void ImGui_Neo2::run(int argc, char **argv)
         ee.set_elf_state(true);
     }
 
+    bus.load_bios("C:\\Users\\joel.bueno\\source\\repos\\Neo2\\scph10000.bin");
+    ee.elf_path = "C:\\Users\\joel.bueno\\source\\repos\\Neo2\\3stars.elf";
+    ee.sideload_elf = true;
+    ee.set_elf_state(true);
+
     if (program.is_used("--ee-breakpoint"))
     {
         std::string breakpoints_str = program.get<std::string>("--ee-breakpoint");
@@ -443,65 +303,31 @@ void ImGui_Neo2::run(int argc, char **argv)
         return;
     }
 
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-    // GL ES 2.0 + GLSL 100 (WebGL 1.0)
-    const char* glsl_version = "#version 100";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif defined(IMGUI_IMPL_OPENGL_ES3)
-    // GL ES 3.0 + GLSL 300 es (WebGL 2.0)
-    const char* glsl_version = "#version 300 es";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif defined(__APPLE__)
-    // GL 3.2 Core + GLSL 150
-    const char* glsl_version = "#version 150";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-#else
-    // GL 3.0 + GLSL 130
-    const char* glsl_version = "#version 130";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#endif
-
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
-    // Create window with SDL_Renderer graphics context
-    Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    SDL_Window* window = SDL_CreateWindow("Neo2 - ImGui + SDL3", 1280, 720, window_flags);
+    SDL_Window *window =
+        SDL_CreateWindow("Neo2 - ImGui + SDL3", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window == nullptr)
     {
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
         return;
     }
-    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    if (gl_context == nullptr)
+    SDL_GPUDevice *gpu_device = SDL_CreateGPUDevice(
+        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB, true, nullptr);
+    if (gpu_device == nullptr)
     {
-        printf("Error: SDL_GL_CreateContext(): %s\n", SDL_GetError());
+        printf("Error: SDL_CreateGPUDevice(): %s\n", SDL_GetError());
         return;
     }
 
-    SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // Enable vsync
-    
-    SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-    SDL_ShowWindow(window);
+    SDL_GPUShaderFormat backendFormats = SDL_GetGPUShaderFormats(gpu_device);
+    this->bus.gs.set_render_mode((RenderMode)backendFormats);
+
+    // Claim window for GPU Device
+    if (!SDL_ClaimWindowForGPUDevice(gpu_device, window))
+    {
+        printf("Error: SDL_ClaimWindowForGPUDevice(): %s\n", SDL_GetError());
+        return;
+    }
+    SDL_SetGPUSwapchainParameters(gpu_device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_MAILBOX);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -600,14 +426,15 @@ void ImGui_Neo2::run(int argc, char **argv)
 	style.Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.800000011920929f, 0.800000011920929f, 0.800000011920929f, 0.3499999940395355f);
 
     // Setup Platform/Renderer backends
-    ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
-    ImGui_ImplOpenGL3_Init(glsl_version);
-
-    this->bus.gs.opengl_.init(640, 480);
-    this->bus.gs.set_render_mode(RenderMode::OpenGL);
+    ImGui_ImplSDL3_InitForSDLGPU(window);
+    ImGui_ImplSDLGPU3_InitInfo init_info = {};
+    init_info.Device = gpu_device;
+    init_info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(gpu_device, window);
+    init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+    ImGui_ImplSDLGPU3_Init(&init_info);
 
     // Our state
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    ImVec4 clear_color = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
 
     ImGuiDebug debug_interface(*this, this->disassembler);
 	std::string bios_file_path;
@@ -634,6 +461,28 @@ void ImGui_Neo2::run(int argc, char **argv)
         draw = true;
         frame_ended = true;
     });
+
+    SDL_GPUSamplerCreateInfo samplerCreateInfo = {
+        .min_filter = SDL_GPU_FILTER_NEAREST,
+        .mag_filter = SDL_GPU_FILTER_NEAREST,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    };
+
+    static SDL_GPUSampler *sampler = SDL_CreateGPUSampler(gpu_device, &samplerCreateInfo);
+
+    // Compile shaders (using your helper function or your own method)
+    SDL_GPUShader *vertexShader = LoadCompiledShader(gpu_device, "vertexShader.spv", SDL_GPU_SHADERSTAGE_VERTEX);
+    SDL_GPUShader *fragmentShader = LoadCompiledShader(gpu_device, "fragmentShader.spv", SDL_GPU_SHADERSTAGE_FRAGMENT);
+
+    // Create the graphics pipeline using the compiled shaders.
+    hw_pipeline = CreatePipeline(gpu_device, window, vertexShader, fragmentShader);
+
+    // Optionally, release shaders if your pipeline takes ownership.
+    SDL_ReleaseGPUShader(gpu_device, vertexShader);
+    SDL_ReleaseGPUShader(gpu_device, fragmentShader);
 
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -665,78 +514,80 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
         // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-        GLuint texID = 0;
-        // Get current framebuffer dimensions
-        int fbWidth  = this->bus.gs.framebuffer1.width;
+        int fbWidth = this->bus.gs.framebuffer1.width;
         int fbHeight = this->bus.gs.framebuffer1.height;
 
-        // If the framebuffer size has changed, update previous values and (optionally) reinitialize textures
-        if (fbWidth != prev_fb_width || fbHeight != prev_fb_height) {
-                    prev_fb_width = this->bus.gs.framebuffer1.width;
-                    prev_fb_height = this->bus.gs.framebuffer1.height;
-
-                    texID = this->bus.gs.opengl_.getFrameTexture();
-                    glBindTexture(GL_TEXTURE_2D, texID);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, static_cast<int>(this->bus.gs.framebuffer1.width), static_cast<int>(this->bus.gs.framebuffer1.height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                    glPixelStorei(GL_UNPACK_ROW_LENGTH, this->bus.gs.framebuffer1.fbw);
-                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, GL_RGBA, GL_UNSIGNED_BYTE, this->bus.gs.vram);
-                    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-                    glBindTexture(GL_TEXTURE_2D, 0);
-                }
-
-        if (this->bus.gs.render_mode == RenderMode::Software)
+        if (fbWidth != prev_fb_width || fbHeight != prev_fb_height)
         {
-            texID = this->bus.gs.opengl_.getFrameTexture();
-            glBindTexture(GL_TEXTURE_2D, texID);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, this->bus.gs.framebuffer1.fbw);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, GL_RGBA, GL_UNSIGNED_BYTE, this->bus.gs.vram);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-            glBindTexture(GL_TEXTURE_2D, 0);
+            prev_fb_width = this->bus.gs.framebuffer1.width;
+            prev_fb_height = this->bus.gs.framebuffer1.height;
+
+            printf("Framebuffer size changed, updating texture (New: %dx%d)...\n", this->bus.gs.framebuffer1.width,
+                       this->bus.gs.framebuffer1.height);
+            SDL_GPUTextureCreateInfo textureCreateInfo{
+                .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+                .width = static_cast<Uint32>(639),
+                .height = static_cast<Uint32>(224),
+                .layer_count_or_depth = 1,
+                .num_levels = 1,
+            };
+            emu_texure = SDL_CreateGPUTexture(gpu_device, &textureCreateInfo);
+            if (!emu_texure)
+            {
+                printf("Couldn't create texture from VRAM!\n");
+            }
+            else
+            {
+                printf("New texture created successfully!\n");
+            }
+
+            SDL_SetGPUTextureName(gpu_device, emu_texure, "vram");
         }
 
         // Use fixed native dimensions for display
-        const int nativeWidth  = 640;
+        const int nativeWidth = 640;
         const int nativeHeight = 480;
 
         // Get window size from ImGui IO
-        float windowWidth  = io.DisplaySize.x;
+        float windowWidth = io.DisplaySize.x;
         float windowHeight = io.DisplaySize.y;
 
         // Assume your menubar and status bar each use the height of one frame
-        float menubarHeight  = ImGui::GetFrameHeight();
+        float menubarHeight = ImGui::GetFrameHeight();
         float statusbarHeight = ImGui::GetFrameHeight();
 
         // Compute the available area for the background (between menubar and status bar)
-        float availableWidth  = windowWidth;
+        float availableWidth = windowWidth;
         float availableHeight = windowHeight - menubarHeight - statusbarHeight;
 
         // Calculate the maximum integer scale factor that fits in the available area
-        int scaleFactor = std::max(1, (int)std::min( availableWidth  / (float)nativeWidth,
-                                                        availableHeight / (float)nativeHeight ));
+        int scaleFactor =
+            std::max(1, (int)std::min(availableWidth / (float)nativeWidth, availableHeight / (float)nativeHeight));
 
         // Compute the scaled dimensions based on the native 640x480 resolution
-        int scaledWidth  = nativeWidth  * scaleFactor;
+        int scaledWidth = nativeWidth * scaleFactor;
         int scaledHeight = nativeHeight * scaleFactor;
 
         // Center the scaled image in the available area
         float posX = (availableWidth - scaledWidth) * 0.5f;
         float posY = menubarHeight + (availableHeight - scaledHeight) * 0.5f;
 
-        // Retrieve the current framebuffer texture ID (adjust according to your render mode)
-        texID = bus.gs.opengl_.getFrameTexture(); // or your method for software mode
+        if (emu_texure != nullptr)
+        {
+            ImDrawList *bgDrawList = ImGui::GetBackgroundDrawList();
+            /* bgDrawList->AddImage((ImTextureID)(emu_texure), ImVec2(posX, posY),
+                                 ImVec2(posX + scaledWidth, posY + scaledHeight));*/
 
-        // Draw the emulator “screen” as a background image using the native 640x480 dimensions (scaled up)
-        ImDrawList* bgDrawList = ImGui::GetBackgroundDrawList();
-        bgDrawList->AddImage((ImTextureID)(texID),
-                            ImVec2(posX, posY),
-                            ImVec2(posX + scaledWidth, posY + scaledHeight));
+            SDL_GPUTextureSamplerBinding texture_sampler_binding[2];
+            texture_sampler_binding[0].texture = emu_texure;
+            texture_sampler_binding[0].sampler = sampler;
+            //ImGui::Image(ImTextureID(texture_sampler_binding), ImVec2(720, 480));
+        }
 
         // Menu Bar with Debug options
         if (ImGui::BeginMainMenuBar()) {
@@ -771,20 +622,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
                 ImGui::EndMenu();
             }
-            std::string cur_render_mode = "Current Render Mode: ";
-            if (this->bus.gs.render_mode == RenderMode::Software) {
-                cur_render_mode += "Software";
-            }
-            else if (this->bus.gs.render_mode == RenderMode::OpenGL) {
-                cur_render_mode += "OpenGL";
-            }
-            if (ImGui::Button(cur_render_mode.c_str())) {
-                if (this->bus.gs.render_mode == RenderMode::Software) {
-                    this->bus.gs.set_render_mode(RenderMode::OpenGL);
-                } else if (this->bus.gs.render_mode == RenderMode::OpenGL) {
-                    this->bus.gs.set_render_mode(RenderMode::Software);
-                }
-            }
+
             ImGui::EndMainMenuBar();
         }
 
@@ -841,7 +679,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         }
 
         if (show_textures) {
-            render_textures(bus.gs, zoom_factor);
+            //render_textures(bus.gs, zoom_factor);
         }
 
         // Handle the file dialog for loading BIOS
@@ -942,7 +780,9 @@ void ImGui_Neo2::run(int argc, char **argv)
                     stop_requested = false; // Reset stop flag
 
                     // Start the emulation loop in separate threads
-                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text, &status_color, &scheduler, &gs_vblank_task_id, &vblank_end_id]() {
+                    std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text,
+                                           &status_color, &scheduler, &gs_vblank_task_id, &vblank_end_id,
+                                           &gpu_device, &emu_texure, &command_buffer]() {
                         while (!stop_requested) {
                             frame_ended = false;
                             scheduler.add_event(gs_vblank_task_id, VBLANK_START_CYCLES, "VBlank Start");
@@ -1030,6 +870,69 @@ void ImGui_Neo2::run(int argc, char **argv)
             }
 
             ImGui::SameLine();
+            const char *render_modes[] = {"Software",    "Vulkan",      "DX12 (DXBC)", "DX12 (DXIL)",
+                                          "Metal (MSL)", "Metal (LIB)", "OpenGL"};
+            RenderMode current_render_mode = this->bus.gs.render_mode;
+
+            int current_render_mode_index = 0;
+            switch (current_render_mode)
+            {
+            case RenderMode::Software:
+                current_render_mode_index = 0;
+                break;
+            case RenderMode::Vulkan:
+                current_render_mode_index = 1;
+                break;
+            case RenderMode::DX12_DXBC:
+                current_render_mode_index = 2;
+                break;
+            case RenderMode::DX12_DXIL:
+                current_render_mode_index = 3;
+                break;
+            case RenderMode::Metal_MSL:
+                current_render_mode_index = 4;
+                break;
+            case RenderMode::Metal_LIB:
+                current_render_mode_index = 5;
+                break;
+            case RenderMode::OpenGL:
+                current_render_mode_index = 6;
+                break;
+            default:
+                break;
+            }
+
+            ImGui::SetNextItemWidth(150); // Set the width of the combobox
+            if (ImGui::Combo("Render Mode", &current_render_mode_index, render_modes, IM_ARRAYSIZE(render_modes)))
+            {
+                switch (current_render_mode_index)
+                {
+                case 0:
+                    this->bus.gs.set_render_mode(RenderMode::Software);
+                    break;
+                case 1:
+                    this->bus.gs.set_render_mode(RenderMode::Vulkan);
+                    break;
+                case 2:
+                    this->bus.gs.set_render_mode(RenderMode::DX12_DXBC);
+                    break;
+                case 3:
+                    this->bus.gs.set_render_mode(RenderMode::DX12_DXIL);
+                    break;
+                case 4:
+                    this->bus.gs.set_render_mode(RenderMode::Metal_MSL);
+                    break;
+                case 5:
+                    this->bus.gs.set_render_mode(RenderMode::Metal_LIB);
+                    break;
+                case 6:
+                    this->bus.gs.set_render_mode(RenderMode::OpenGL);
+                    break;
+                default:
+                    break;
+                }
+            }
+            ImGui::SameLine();
             text_height = ImGui::GetTextLineHeight();
             button_height = ImGui::GetFrameHeight();
             vertical_offset = (text_height - button_height) / 2.0f;
@@ -1050,32 +953,165 @@ void ImGui_Neo2::run(int argc, char **argv)
             ImGui::PopStyleColor(3);
             ImGui::End();
         }
-
+        
         ImGui::Render();
-        glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-        glClearColor(0.05f, 0.05f, 0.05f, 0.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        
+        ImDrawData *draw_data = ImGui::GetDrawData();
+        const bool is_minimized = (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
 
+        command_buffer = SDL_AcquireGPUCommandBuffer(gpu_device); // Acquire a GPU command buffer
+
+        SDL_AcquireGPUSwapchainTexture(command_buffer, window, &swapchain_texture, nullptr,
+                                       nullptr); // Acquire a swapchain texture
+
+        if (swapchain_texture != nullptr)
+        {
+            SDL_GPUBlitInfo blitInfo;
+            SDL_zero(blitInfo);
+
+            blitInfo.source.texture = emu_texure;
+            blitInfo.source.mip_level = 0;
+            blitInfo.source.layer_or_depth_plane = 0;
+            blitInfo.source.x = 0;
+            blitInfo.source.y = 0;
+            // Use the active framebuffer width/height here.
+            blitInfo.source.w = static_cast<Uint32>(this->bus.gs.framebuffer1.width);
+            blitInfo.source.h = static_cast<Uint32>(this->bus.gs.framebuffer1.height);
+
+            // Next, set up the destination region using your computed values.
+            blitInfo.destination.texture = swapchain_texture; // The swapchain texture acquired earlier.
+            blitInfo.destination.mip_level = 0;
+            blitInfo.destination.layer_or_depth_plane = 0;
+            blitInfo.destination.x = static_cast<Uint32>(posX);
+            blitInfo.destination.y = static_cast<Uint32>(posY);
+            blitInfo.destination.w = static_cast<Uint32>(scaledWidth);
+            blitInfo.destination.h = static_cast<Uint32>(scaledHeight);
+
+            // Choose a load operation. If you want to preserve previous contents (for composition), use LOAD;
+            // if you want to clear before drawing, use CLEAR and specify clear_color.
+            blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+            blitInfo.clear_color = SDL_FColor{clear_color.x, clear_color.y, clear_color.z, clear_color.w};
+
+            // Set flip mode and filter mode as desired.
+            blitInfo.flip_mode = SDL_FLIP_NONE;
+            blitInfo.filter = SDL_GPU_FILTER_NEAREST;
+            blitInfo.cycle = false;
+
+            // Now, blit the texture using the command buffer.
+            // Note: SDL_BlitGPUTexture must be called outside any render pass.
+            SDL_BlitGPUTexture(command_buffer, &blitInfo);
+        }
+        if (swapchain_texture != nullptr && !is_minimized)
+        {
+            // This is mandatory: call Imgui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
+            Imgui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
+
+            // Setup and start a render pass
+            SDL_GPUColorTargetInfo target_info = {};
+            target_info.texture = swapchain_texture;
+            target_info.clear_color = SDL_FColor{clear_color.x, clear_color.y, clear_color.z, clear_color.w};
+            //target_info.load_op = SDL_GPU_LOADOP_CLEAR;
+            target_info.store_op = SDL_GPU_STOREOP_STORE;
+            target_info.mip_level = 0;
+            target_info.layer_or_depth_plane = 0;
+            target_info.cycle = false;
+            SDL_GPURenderPass *render_pass = SDL_BeginGPURenderPass(command_buffer, &target_info, 1, nullptr);
+
+            // Render ImGui
+            ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass);
+
+            SDL_EndGPURenderPass(render_pass);
+        }
+        
         if (draw == true)
         {
-            if (this->bus.gs.render_mode == RenderMode::OpenGL) this->bus.gs.opengl_.updateFromVram(this->bus.gs.vram, this->bus.gs.framebuffer1.width, this->bus.gs.framebuffer1.height, this->bus.gs.framebuffer1.fbw);
-            this->bus.gs.batch_draw();
-            draw = false;
-        }
+                if (!emu_texure)
+                {
+                    Logger::error("Couldn't create texture from VRAM!");
+                }
+                else
+                {
+                    Uint32 transferSize = this->bus.gs.framebuffer1.fbw * this->bus.gs.framebuffer1.height * 4;
+                    SDL_GPUTransferBufferCreateInfo tbci;
+                    SDL_zero(tbci);
+                    tbci.size = transferSize;
+                    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
 
-        SDL_GL_SwapWindow(window);
+                    SDL_GPUTransferBuffer *tbuf = SDL_CreateGPUTransferBuffer(gpu_device, &tbci);
+                    if (!tbuf)
+                    {
+                        printf("Failed to create transfer buffer: %s\n", SDL_GetError());
+                        // Handle error appropriately.
+                        return;
+                    }
+
+                    // Acquire a GPU command buffer and begin a copy pass.
+                    SDL_GPUCopyPass *copy_pass = SDL_BeginGPUCopyPass(command_buffer);
+                    if (!copy_pass)
+                    {
+                        printf("Failed to begin GPU copy pass: %s\n", SDL_GetError());
+                        return;
+                    }
+
+                    // Map the transfer buffer and copy the pixel data into it.
+                    void *textureTransferPtr = SDL_MapGPUTransferBuffer(gpu_device, tbuf, true);
+                    if (!textureTransferPtr)
+                    {
+                        printf("Failed to map transfer buffer: %s\n", SDL_GetError());
+                        // Handle error...
+                    }
+                    
+                    SDL_memcpy(textureTransferPtr, this->bus.gs.vram, transferSize);
+
+                    // Prepare the source info structure.
+                    SDL_GPUTextureTransferInfo srcInfo;
+                    SDL_zero(srcInfo);
+                    srcInfo.transfer_buffer = tbuf;
+                    srcInfo.offset = 0;
+                    srcInfo.pixels_per_row = static_cast<Uint32>(this->bus.gs.framebuffer1.fbw);
+                    srcInfo.rows_per_layer = static_cast<Uint32>(this->bus.gs.framebuffer1.height); // Number of rows
+
+                    // Prepare the destination region structure.
+                    SDL_GPUTextureRegion destRegion;
+                    SDL_zero(destRegion);
+                    destRegion.texture = emu_texure;
+                    destRegion.mip_level = 0;
+                    destRegion.layer = 0;
+                    destRegion.x = 0;
+                    destRegion.y = 0;
+                    destRegion.z = 0;
+                    destRegion.w = static_cast<Uint32>(this->bus.gs.framebuffer1.width);
+                    destRegion.h = static_cast<Uint32>(this->bus.gs.framebuffer1.height);
+                    destRegion.d = 1;
+
+                    // Upload the data from the transfer buffer to the GPU texture.
+                    SDL_UploadToGPUTexture(copy_pass, &srcInfo, &destRegion, false);
+
+                    SDL_UnmapGPUTransferBuffer(gpu_device, tbuf);
+                    // End the copy pass and submit the command buffer.
+                    SDL_EndGPUCopyPass(copy_pass);
+
+                    SDL_ReleaseGPUTransferBuffer(gpu_device, tbuf);
+                }
+            
+                draw = false;
+        }
+        
+        // Submit the command buffer
+        SDL_SubmitGPUCommandBuffer(command_buffer);
     }
 #ifdef __EMSCRIPTEN__
     EMSCRIPTEN_MAINLOOP_END;
 #endif
 
     // Cleanup
-    ImGui_ImplOpenGL3_Shutdown();
+    SDL_WaitForGPUIdle(gpu_device);
     ImGui_ImplSDL3_Shutdown();
+    ImGui_ImplSDLGPU3_Shutdown();
     ImGui::DestroyContext();
 
-    SDL_GL_DestroyContext(gl_context);
+    SDL_ReleaseWindowFromGPUDevice(gpu_device, window);
+    SDL_DestroyGPUDevice(gpu_device);
     SDL_DestroyWindow(window);
     SDL_Quit();
 }

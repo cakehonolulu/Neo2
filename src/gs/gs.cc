@@ -15,7 +15,8 @@ using fmt::format;
 #include <cstring>
 #include <algorithm>
 
-GS::GS() : opengl_(640, 480) {
+GS::GS() : hw_renderer(640, 480)
+{
     for (int i = 0; i < 19; ++i) {
         gs_privileged_registers[i] = 0;
     }
@@ -27,13 +28,13 @@ GS::GS() : opengl_(640, 480) {
     framebuffer1.width = 640; // Default width, will be updated based on GS registers
     framebuffer1.height = 480; // Default height, will be updated based on GS registers
     framebuffer1.format = 0; // Default format, will be updated based on GS registers
-    framebuffer1.fbw = 0;
+    framebuffer1.fbw = 4;
 
     framebuffer2.data = vram;
     framebuffer2.width = 640; // Default width, will be updated based on GS registers
     framebuffer2.height = 480; // Default height, will be updated based on GS registers
     framebuffer2.format = 0; // Default format, will be updated based on GS registers
-    framebuffer2.fbw = 0;
+    framebuffer2.fbw = 4;
 
     current_prim = 0;
     vertex_count = 0;
@@ -327,8 +328,6 @@ void GS::write_internal_reg(uint8_t reg, uint64_t data) {
     }
 }
 
-int test = 0;
-
 void GS::write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q) {
     // Handle the incoming GIF data and write to appropriate GS registers
     switch (reg) {
@@ -433,8 +432,9 @@ void GS::write_packed_gif_data(uint8_t reg, uint128_t data, uint32_t q) {
     }
 }
 
-void GS::add_vertex(uint64_t data, bool vertex_kick) {
-    //printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
+void GS::add_vertex(uint64_t data, bool vertex_kick)
+{
+    // printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
 
     PrimitiveType prim_type_ = static_cast<PrimitiveType>(current_prim & 0x7);
 
@@ -449,17 +449,17 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
 
     int16_t x_fixed = static_cast<int16_t>((data >> 0) & 0xFFFF);
     int16_t y_fixed = static_cast<int16_t>((data >> 16) & 0xFFFF);
-    //printf(BOLDBLUE "add_vertex -> x_fixed: %04X, y_fixed: %04X" RESET" \n", x_fixed, y_fixed);
+    // printf(BOLDBLUE "add_vertex -> x_fixed: %04X, y_fixed: %04X" RESET" \n", x_fixed, y_fixed);
 
     int16_t xoffset_1 = gs_registers[0x18] & 0xFFFF;
     int16_t yoffset_1 = (gs_registers[0x18] >> 32) & 0xFFFF;
 
-    //printf(BOLDGREEN "add_vertex -> xoffset_1: %04X, yoffset_1: %04X" RESET" \n", xoffset_1, yoffset_1);
+    // printf(BOLDGREEN "add_vertex -> xoffset_1: %04X, yoffset_1: %04X" RESET" \n", xoffset_1, yoffset_1);
 
     x_fixed -= xoffset_1;
     y_fixed -= yoffset_1;
 
-    //printf(BOLDCYAN "add_vertex -> x_fixed: %04X, y_fixed: %04X" RESET" \n", x_fixed, y_fixed);
+    // printf(BOLDCYAN "add_vertex -> x_fixed: %04X, y_fixed: %04X" RESET" \n", x_fixed, y_fixed);
 
     int32_t z = static_cast<int32_t>((data >> 48) & 0xFFFFFF);
 
@@ -472,13 +472,13 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
     uint8_t r = (rgbaq >> 16) & 0xFF;
     uint8_t a = (rgbaq >> 24) & 0xFF;
     uint32_t color = (r << 24) | (g << 16) | (b << 8) | a;
-    //printf(BOLDBLUE "add_vertex: R: %d, G: %d, B: %d, x: %.0f, y: %.0f" RESET" \n", r, g, b, x, y);
+    // printf(BOLDBLUE "add_vertex: R: %d, G: %d, B: %d, x: %.0f, y: %.0f" RESET" \n", r, g, b, x, y);
 
-    //printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
+    // printf(BOLDBLUE "add_vertex -> data: %016lX" RESET" \n", data);
     float u = static_cast<float>(gs_registers[0x02]);
     float v = static_cast<float>(gs_registers[0x03]);
 
-    //if ((current_prim & 0x7) == 6) printf("Got vertex data: x: %.0f, y: %.0f\n", x, y);
+    // if ((current_prim & 0x7) == 6) printf("Got vertex data: x: %.0f, y: %.0f\n", x, y);
 
     vertex_buffer.push_back({x, y, static_cast<float>(z), color, u, v});
     vertex_count++;
@@ -486,39 +486,37 @@ void GS::add_vertex(uint64_t data, bool vertex_kick) {
     uint32_t prim_type = current_prim & 0x7;
     bool should_draw = false;
 
-
     if (vertex_kick)
     {
-        switch (prim_type) {
-            case 0: // Point
-                should_draw = (vertex_count >= 1);
-                break;
-            case 1: // Line
-                should_draw = (vertex_count >= 2);
-                break;
-            case 3: // Triangle
-                should_draw = (vertex_count >= 3);
-                //if (should_draw) printf("Should draw triangle now, vertex's: %d\n", vertex_count);
-                break;
-            case 6: // Sprite
-                should_draw = (vertex_count >= 2);
-                //if (should_draw) printf("Should draw sprite now, vertex's: %d\n", vertex_count);
-                break;
-            default:
-                Logger::error("Unsupported primitive type: " + std::to_string(prim_type));
-                break;
+        switch (prim_type)
+        {
+        case 0: // Point
+            should_draw = (vertex_count >= 1);
+            break;
+        case 1: // Line
+            should_draw = (vertex_count >= 2);
+            break;
+        case 3: // Triangle
+            should_draw = (vertex_count >= 3);
+            // if (should_draw) printf("Should draw triangle now, vertex's: %d\n", vertex_count);
+            break;
+        case 6: // Sprite
+            should_draw = (vertex_count >= 2);
+            // if (should_draw) printf("Should draw sprite now, vertex's: %d\n", vertex_count);
+            break;
+        default:
+            Logger::error("Unsupported primitive type: " + std::to_string(prim_type));
+            break;
         }
 
-        if (should_draw) {
+        if (should_draw)
+        {
             PrimitiveType prim_type = static_cast<PrimitiveType>(current_prim & 0x7);
 
             Primitive prim;
             prim.type = static_cast<PrimitiveType>(prim_type);
-            prim.vertices = vertex_buffer;  // Copy by value.
-            {
-                std::lock_guard<std::mutex> lock(prim_queue_mutex);
-                prim_queue.push_back(prim);   
-            }
+            prim.vertices = vertex_buffer; // Copy by value.
+            prim_queue.push_back(prim);
             vertex_buffer.clear();
             vertex_count = 0;
         }
@@ -978,47 +976,39 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
     }
 }
 
-int num = 0;
-void GS::batch_draw() {
-    if (render_mode == RenderMode::OpenGL) opengl_.updateFromVram(vram, framebuffer1.width, framebuffer1.height, framebuffer1.fbw);
+void GS::batch_draw()
+{
     bool executed = false;
     {
-        std::lock_guard<std::mutex> lock(prim_queue_mutex);
-        for (const Primitive& prim : prim_queue) {
+        for (const Primitive &prim : prim_queue)
+        {
             executed = true;
-            switch (prim.type) {
-                case PrimitiveType::Point:
-                    draw_point(prim.vertices);
-                    break;
-                case PrimitiveType::Triangle:
-                    draw_triangle(prim.vertices);
-                    break;
-                case PrimitiveType::Sprite:
-                    draw_sprite(prim.vertices);
-                    break;
-                default:
-                    std::string unkwn_prim = "Unsupported primitive type in batch_draw: " + format("{:d}", (int)prim.type);
-                    Logger::error(unkwn_prim.c_str());
-                    Neo2::exit(1, Neo2::Subsystem::GS);
-                    break;
+            switch (prim.type)
+            {
+            case PrimitiveType::Point:
+                draw_point(prim.vertices);
+                break;
+            case PrimitiveType::Triangle:
+                draw_triangle(prim.vertices);
+                break;
+            case PrimitiveType::Sprite:
+                draw_sprite(prim.vertices);
+                break;
+            default:
+                std::string unkwn_prim = "Unsupported primitive type in batch_draw: " + format("{:d}", (int)prim.type);
+                Logger::error(unkwn_prim.c_str());
+                Neo2::exit(1, Neo2::Subsystem::GS);
+                break;
             }
         }
         prim_queue.clear();
     }
-    if (executed) {
+    if (executed)
+    {
         vertex_buffer.clear();
         vertex_count = 0;
     }
 }
 
-void GS::draw_point_opengl(const Vertex& vertex, uint32_t width, uint32_t height, uint64_t scissor) {
-	opengl_.draw_point_opengl(vertex, width, height, scissor);
-}
-
-void GS::draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
-	opengl_.draw_triangle_opengl(vertices, width, height, scissor);
-}
-
-void GS::draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor) {
-	opengl_.draw_sprite_opengl(vertices, width, height, scissor);
+void GS::UploadHWVertexData(const std::vector<Vertex> &vertices) {
 }
