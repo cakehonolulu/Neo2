@@ -15,6 +15,11 @@ using std::format;
 using fmt::format;
 #endif
 
+std::unordered_map<int, uint128_t> previous_ee_registers;
+std::unordered_map<int, std::uint32_t> previous_iop_registers;
+std::unordered_map<int, float> ee_register_change_timers;
+std::unordered_map<int, float> iop_register_change_timers;
+
 ImGuiDebug::ImGuiDebug(ImGui_Neo2& neo2_instance, Disassembler& disassembler_instance)
     : neo2(neo2_instance), disassembler(disassembler_instance), start_pc(neo2_instance.ee.pc) {}
 
@@ -41,11 +46,6 @@ const std::string cop0_register_names[32] = {
     "Config", "LLAddr", "WatchLo", "WatchHi", "XContext", "Reserved", "Reserved", "Reserved",
     "Reserved", "Reserved", "ECC", "CacheErr", "TagLo", "TagHi", "ErrorEPC", "Reserved"
 };
-
-std::unordered_map<int, uint128_t> previous_ee_registers;
-std::unordered_map<int, std::uint32_t> previous_iop_registers;
-std::unordered_map<int, float> ee_register_change_timers;
-std::unordered_map<int, float> iop_register_change_timers;
 
 void ImGuiDebug::render_memory_view(Bus *bus) {
     ImGui::Begin("Memory Viewer");
@@ -347,10 +347,12 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
 
     // Lambda to render register with optional input field
     auto render_register_ = [&](const char* label, __int128 value, int reg_index = -1) {
-        ImGui::Text("%s: 0x%032llX", label, value);
+        ImGui::Text("%s: 0x%016llX%016llX", label, (uint64_t)((value << 64) & 0xFFFFFFFFFFFFFFFF),
+                    (uint64_t) (value & 0xFFFFFFFFFFFFFFFF));
         if (ImGui::IsItemClicked()) {
             selected_register = reg_index;
-            snprintf(new_value, sizeof(new_value), "%032llX", value);
+            snprintf(new_value, sizeof(new_value), "%016llX%016llX", (uint64_t)((value << 64) & 0xFFFFFFFFFFFFFFFF),
+                     (uint64_t)(value & 0xFFFFFFFFFFFFFFFF));
         }
 
         if (selected_register == reg_index) {
@@ -411,8 +413,8 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
 
     if (auto* ee = dynamic_cast<EE*>(cpu)) {
         ImGui::Text("EE PC: 0x%08X (%08X)", ee->pc, ee->next_pc);
-        ImGui::Text("LO: 0x%08X", ee->lo);
-        ImGui::Text("HI: 0x%08X", ee->hi);
+        ImGui::Text("LO: 0x%016llX%016llX", ee->lo.u64[1], ee->lo.u64[0]);
+        ImGui::Text("HI: 0x%016llX%016llX", ee->hi.u64[1], ee->hi.u64[0]);
     } else if (auto* iop = dynamic_cast<IOP*>(cpu)) {
         ImGui::Text("IOP PC: 0x%08X (%08X)", iop->pc, iop->next_pc);
     }
@@ -423,7 +425,9 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
             for (int i = 0; i < 32; ++i) {
                 ImGui::TableNextColumn();
                 uint128_t current_value = ee->registers[i];
-                if (previous_ee_registers[i].u128 != current_value.u128) {
+                if (previous_ee_registers[i].u64[1] != current_value.u64[1] ||
+                    previous_ee_registers[i].u64[0] != current_value.u64[0])
+                {
                     previous_ee_registers[i] = current_value;
                     ee_register_change_timers[i] = 1.0f;
                 }
