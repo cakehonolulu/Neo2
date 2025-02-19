@@ -15,3 +15,4 @@ build/*
 *.json
 out/
 .vs/
+include/elf.h
