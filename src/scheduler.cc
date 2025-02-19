@@ -279,7 +279,6 @@ void Scheduler::update_cycle_counts(uint64_t executed) {
 }
 
 void Scheduler::process_events() {
-    fflush(stdout);
     if (ee_cycles.count >= closest_event_time) {
         int64_t new_time = 0x7FFFFFFFULL << 32ULL;
         for (auto it = events.begin(); it != events.end(); ) {
