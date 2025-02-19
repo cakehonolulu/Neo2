@@ -7,7 +7,7 @@
 #include <queue>
 #include <mutex>
 #include <vertex.hh>
-#include <frontends/imgui/framebuffer.h>
+#include <frontends/imgui/sdl3_gpu_renderer.h>
 
 // New structures for GS_Framebuffer and vertex buffer
 struct GS_Framebuffer {
@@ -34,8 +34,13 @@ struct Primitive {
 };
 
 enum class RenderMode {
-    Software,
-    OpenGL
+    Software = 0,
+    Vulkan = (1u << 1),
+    DX12_DXBC = (1u << 2),
+    DX12_DXIL = (1u << 3),
+    Metal_MSL = (1u << 4),
+    Metal_LIB = (1u << 5),
+    OpenGL = 6
 };
 
 class GS {
@@ -77,7 +82,7 @@ public:
     GS();
     ~GS();
 
-    FrameBuffer opengl_;
+    SDLGPURenderer hw_renderer;
 
     // Methods to handle register reads and writes
     uint64_t read(uint32_t address);
@@ -104,6 +109,8 @@ public:
     uint64_t gs_privileged_registers[19]; // 19 privileged registers
     uint64_t gs_registers[0x63]; // 55 general registers
 
+    bool initialized = false;
+
     void write_hwreg(uint64_t data);
 
     // Texture tracking
@@ -119,31 +126,37 @@ public:
     void draw_triangle_software(const std::vector<Vertex>& vertices);
     void draw_sprite_software(const std::vector<Vertex>& vertices);
 
-    // OpenGL renderer.
-    void draw_point_opengl(const Vertex& vertex, uint32_t width, uint32_t height, uint64_t scissor);
-    void draw_triangle_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
-    void draw_sprite_opengl(const std::vector<Vertex>& vertices, uint32_t width, uint32_t height, uint64_t scissor);
+    // Hardware renderer.
+    void UploadHWVertexData(const std::vector<Vertex> &vertices);
 
     // Branching methods.
     void draw_point(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
             draw_point_software(vertices[0]);
-        else
-            draw_point_opengl(vertices[0], framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
+        /* else
+            UploadHWVertexData(vertices[0]);*/
     }
 
     void draw_triangle(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
+        {
             draw_triangle_software(vertices);
+        }
         else
-            draw_triangle_opengl(vertices, framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
+        {
+            //UploadHWVertexData(vertices);
+        }
     }
 
     void draw_sprite(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
+        {
             draw_sprite_software(vertices);
+        }
         else
-            draw_sprite_opengl(vertices, framebuffer1.width, framebuffer1.height, gs_registers[0x40]);
+        {
+            //UploadHWVertexData(vertices);
+        }
     }
 
     RenderMode render_mode = RenderMode::Software;
@@ -159,15 +172,17 @@ public:
     void add_vertex(uint64_t data, bool vertex_kick);
     void batch_draw();
 
-    mutable std::mutex prim_queue_mutex;
     void dump_first_non_empty_queue(const std::string& filename);
     
     std::vector<Primitive> get_queued_primitives() const {
-        std::lock_guard<std::mutex> lock(prim_queue_mutex);
         return std::vector<Primitive>(prim_queue.begin(), prim_queue.end());
     }
 
-private:
+    bool hw_renderer_draw = false;
+
+    std::deque<Primitive> prim_queue;
+
+  private:
     uint64_t bitbltbuf = 0;
     uint64_t trxpos = 0;
     uint64_t trxreg = 0;
@@ -204,14 +219,13 @@ private:
 
     std::vector<Texture> textures; // List of uploaded textures
 
-    std::deque<Primitive> prim_queue;
-
     PrimitiveType current_primitive = PrimitiveType::None;
-
-    std::vector<Vertex> vertex_buffer; // Declare vertex_buffer
-    uint64_t current_prim;
-    uint32_t vertex_count;
 
     uint16_t interpolate(int32_t x, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void draw_pixel(int32_t x, int32_t y, uint32_t color, uint32_t z, bool alpha_blend);
+
+    uint64_t current_prim;
+    uint32_t vertex_count;
+
+    std::vector<Vertex> vertex_buffer;
 };
