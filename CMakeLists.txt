@@ -15,7 +15,6 @@ if (SANITIZER)
     add_link_options(-fsanitize=address,leak,undefined,pointer-compare,pointer-subtract)
 endif()
 
-
 if(WIN32 OR _WIN32)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /clang:-std=c++23")
 file(DOWNLOAD "https://gist.githubusercontent.com/Nax/3c4e4de87fa53bd3659b8ca32c27a339/raw/d9d3e45d639c6e60b0fe440865807064688f3b97/elf.h"
@@ -27,9 +26,6 @@ endif()
 find_package(LLVM REQUIRED CONFIG)
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
-
-find_package(GLEW REQUIRED) # Add this line to find GLEW
-include_directories(${GLEW_INCLUDE_DIRS}) # Include GLEW headers
 
 add_executable(neo2)
 
@@ -48,5 +44,4 @@ target_link_libraries(neo2 PRIVATE LLVMWindowsManifest LLVMXRay LLVMLibDriver LL
 else()
 target_link_libraries(neo2 PRIVATE LLVM)
 endif()
-target_link_libraries(neo2 PRIVATE ${GLEW_LIBRARIES}) # Link GLEW library
 target_link_options(neo2 PRIVATE -Wl,--export-dynamic)
