@@ -12,3 +12,6 @@ imgui.ini
 build/*
 .vscode/
 *.elf
+*.json
+out/
+.vs/
