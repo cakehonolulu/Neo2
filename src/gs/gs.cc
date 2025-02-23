@@ -442,9 +442,13 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
     {
         current_primitive = prim_type_;
 
-        vertex_buffer.clear();
-        vertex_count = 0;
         batch_draw();
+
+        if (render_mode == RenderMode::Software)
+        {
+            vertex_buffer.clear();
+            vertex_count = 0;
+        }
     }
 
     int16_t x_fixed = static_cast<int16_t>((data >> 0) & 0xFFFF);
@@ -480,7 +484,7 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
     // if ((current_prim & 0x7) == 6) printf("Got vertex data: x: %.0f, y: %.0f\n", x, y);
 
-    vertex_buffer.push_back({x, y, static_cast<float>(z), color, u, v});
+    vertex_buffer.push_back({x, y, static_cast<float>(z), color});
     vertex_count++;
 
     uint32_t prim_type = current_prim & 0x7;
@@ -511,14 +515,21 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
         if (should_draw)
         {
-            PrimitiveType prim_type = static_cast<PrimitiveType>(current_prim & 0x7);
+            // Create a packet with the complete primitive.
+            VertexPacket packet;
+            packet.type = static_cast<PrimitiveType>(current_prim & 0x7);
+            packet.vertices = vertex_buffer; // Copy the complete vertex data.
 
-            Primitive prim;
-            prim.type = static_cast<PrimitiveType>(prim_type);
-            prim.vertices = vertex_buffer; // Copy by value.
-            prim_queue.push_back(prim);
-            vertex_buffer.clear();
-            vertex_count = 0;
+            // Push the packet into the packet queue.
+            if (!packetQueue->push(packet))
+            {
+                Logger::warn("Packet queue full, dropping packet!");
+            }
+            else
+            {
+                // Signal the main thread that a new packet is available.
+                //newVerticesAvailable.store(true, std::memory_order_release);
+            }
         }
     }
 }
@@ -976,8 +987,21 @@ void GS::update_framebuffer(uint32_t frame, uint32_t width, uint32_t height, uin
     }
 }
 
+
 void GS::batch_draw()
 {
+    if (render_mode != RenderMode::Software)
+    {
+        if (!vertex_buffer.empty())
+        {
+            // Clear the local vertex buffer and reset count.
+            vertex_buffer.clear();
+            vertex_count = 0;
+            // Notify the main thread that new vertex data is available.
+            newVerticesAvailable.store(true, std::memory_order_release);
+        }
+        return;
+    }
     bool executed = false;
     {
         for (const Primitive &prim : prim_queue)
@@ -1008,7 +1032,4 @@ void GS::batch_draw()
         vertex_buffer.clear();
         vertex_count = 0;
     }
-}
-
-void GS::UploadHWVertexData(const std::vector<Vertex> &vertices) {
 }

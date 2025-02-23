@@ -279,11 +279,6 @@ void ImGui_Neo2::run(int argc, char **argv)
         ee.set_elf_state(true);
     }
 
-    bus.load_bios("C:\\Users\\joel.bueno\\source\\repos\\Neo2\\scph10000.bin");
-    ee.elf_path = "C:\\Users\\joel.bueno\\source\\repos\\Neo2\\3stars.elf";
-    ee.sideload_elf = true;
-    ee.set_elf_state(true);
-
     if (program.is_used("--ee-breakpoint"))
     {
         std::string breakpoints_str = program.get<std::string>("--ee-breakpoint");
@@ -462,17 +457,6 @@ void ImGui_Neo2::run(int argc, char **argv)
         frame_ended = true;
     });
 
-    SDL_GPUSamplerCreateInfo samplerCreateInfo = {
-        .min_filter = SDL_GPU_FILTER_NEAREST,
-        .mag_filter = SDL_GPU_FILTER_NEAREST,
-        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
-        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-    };
-
-    static SDL_GPUSampler *sampler = SDL_CreateGPUSampler(gpu_device, &samplerCreateInfo);
-
     // Compile shaders (using your helper function or your own method)
     SDL_GPUShader *vertexShader = LoadCompiledShader(gpu_device, "vertexShader.spv", SDL_GPU_SHADERSTAGE_VERTEX);
     SDL_GPUShader *fragmentShader = LoadCompiledShader(gpu_device, "fragmentShader.spv", SDL_GPU_SHADERSTAGE_FRAGMENT);
@@ -576,18 +560,6 @@ void ImGui_Neo2::run(int argc, char **argv)
         // Center the scaled image in the available area
         float posX = (availableWidth - scaledWidth) * 0.5f;
         float posY = menubarHeight + (availableHeight - scaledHeight) * 0.5f;
-
-        if (emu_texure != nullptr)
-        {
-            ImDrawList *bgDrawList = ImGui::GetBackgroundDrawList();
-            /* bgDrawList->AddImage((ImTextureID)(emu_texure), ImVec2(posX, posY),
-                                 ImVec2(posX + scaledWidth, posY + scaledHeight));*/
-
-            SDL_GPUTextureSamplerBinding texture_sampler_binding[2];
-            texture_sampler_binding[0].texture = emu_texure;
-            texture_sampler_binding[0].sampler = sampler;
-            //ImGui::Image(ImTextureID(texture_sampler_binding), ImVec2(720, 480));
-        }
 
         // Menu Bar with Debug options
         if (ImGui::BeginMainMenuBar()) {
@@ -783,7 +755,11 @@ void ImGui_Neo2::run(int argc, char **argv)
                     std::thread ee_thread([this, &is_running, &breakpoints, &stop_requested, &status_text,
                                            &status_color, &scheduler, &gs_vblank_task_id, &vblank_end_id,
                                            &gpu_device, &emu_texure, &command_buffer]() {
-                        while (!stop_requested) {
+                        while (!stop_requested)
+                        {
+                            const double EE_MAX_BIPS = 62.0; // Theoretical maximum BIPS
+                            static Uint64 ee_prev_time = SDL_GetPerformanceCounter();
+                            static uint64_t ee_total_cycles = 0; // Accumulate executed cycles
                             frame_ended = false;
                             scheduler.add_event(gs_vblank_task_id, VBLANK_START_CYCLES, "VBlank Start");
                             scheduler.add_event(vblank_end_id, PS2_CYCLES_PER_FRAME, "VBlank End");
@@ -798,6 +774,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                                 // Execute the target number of cycles (this->ee.execute_cycles() will update core->cycles)
                                 if (!stop_requested) {
                                     this->ee.execute_cycles(target_cycles, &breakpoints);
+                                    ee_total_cycles += target_cycles;
                                 }
                                 
                                 // Determine the actual number of cycles executed
@@ -812,6 +789,21 @@ void ImGui_Neo2::run(int argc, char **argv)
                                 if (!stop_requested) {
                                     scheduler.process_events();
                                 }
+                            }
+
+                            Uint64 current_time = SDL_GetPerformanceCounter();
+                            double elapsed = (current_time - ee_prev_time) / (double)SDL_GetPerformanceFrequency();
+                            if (elapsed >= 1.0)
+                            {
+                                double ee_mips = (ee_total_cycles / 1e6) / elapsed;
+                                double ee_usage = (ee_mips / EE_MAX_BIPS) * 100.0;
+                                // Update global metrics
+                                gPerfMetrics.ee_mips = ee_mips;
+                                gPerfMetrics.ee_usage = ee_usage;
+                                Logger::info("EE MIPS: " + std::to_string(ee_mips) +
+                                             "   EE Usage: " + std::to_string(ee_usage) + "%");
+                                ee_prev_time = current_time;
+                                ee_total_cycles = 0;
                             }
                         }
 
@@ -933,6 +925,10 @@ void ImGui_Neo2::run(int argc, char **argv)
                 }
             }
             ImGui::SameLine();
+            ImGui::Text("EE MIPS: %.2f (%.1f%%)", gPerfMetrics.ee_mips * 10.0f, gPerfMetrics.ee_usage);
+            ImGui::SameLine();
+            ImGui::Text("GS FPS: %.2f, GS Usage: %.1f%%", gPerfMetrics.gs_fps, gPerfMetrics.gs_usage);
+            ImGui::SameLine();
             text_height = ImGui::GetTextLineHeight();
             button_height = ImGui::GetFrameHeight();
             vertical_offset = (text_height - button_height) / 2.0f;
@@ -1023,8 +1019,15 @@ void ImGui_Neo2::run(int argc, char **argv)
             SDL_EndGPURenderPass(render_pass);
         }
         
-        if (draw == true)
         {
+            static Uint64 gs_prev_time = SDL_GetPerformanceCounter();
+            static int gs_frame_count = 0;
+            static Uint64 gs_total_render_time = 0; // Accumulated render time (ticks)
+
+            Uint64 gs_render_start = SDL_GetPerformanceCounter();
+
+            if (draw == true)
+            {
                 if (!emu_texure)
                 {
                     Logger::error("Couldn't create texture from VRAM!");
@@ -1060,7 +1063,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                         printf("Failed to map transfer buffer: %s\n", SDL_GetError());
                         // Handle error...
                     }
-                    
+
                     SDL_memcpy(textureTransferPtr, this->bus.gs.vram, transferSize);
 
                     // Prepare the source info structure.
@@ -1069,7 +1072,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                     srcInfo.transfer_buffer = tbuf;
                     srcInfo.offset = 0;
                     srcInfo.pixels_per_row = static_cast<Uint32>(this->bus.gs.framebuffer1.fbw);
-                    srcInfo.rows_per_layer = static_cast<Uint32>(this->bus.gs.framebuffer1.height); // Number of rows
+                    srcInfo.rows_per_layer = static_cast<Uint32>(this->bus.gs.framebuffer1.height);
 
                     // Prepare the destination region structure.
                     SDL_GPUTextureRegion destRegion;
@@ -1093,8 +1096,138 @@ void ImGui_Neo2::run(int argc, char **argv)
 
                     SDL_ReleaseGPUTransferBuffer(gpu_device, tbuf);
                 }
-            
+
                 draw = false;
+            }
+
+            {
+                static int testtt = 0;
+                static int bufSz = 0;
+                if (this->bus.gs.newVerticesAvailable.load(std::memory_order_acquire))
+                {
+                    std::vector<VertexPacket> packets;
+                    VertexPacket packet;
+
+                    while (this->bus.gs.packetQueue->pop(packet))
+                    {
+                        packets.push_back(packet);
+                    }
+
+                    this->bus.gs.newVerticesAvailable.store(false, std::memory_order_release);
+
+                    for (const VertexPacket &pkt : packets)
+                    {
+                        Uint32 dataSize = pkt.vertices.size() * sizeof(Vertex);
+
+                        if (!hw_vertex_buffer)
+                        {
+                            SDL_GPUBufferCreateInfo vbci;
+                            SDL_zero(vbci);
+                            vbci.size = dataSize;
+                            bufSz = dataSize;
+                            vbci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+                            hw_vertex_buffer = SDL_CreateGPUBuffer(gpu_device, &vbci);
+                            if (!hw_vertex_buffer)
+                            {
+                                Logger::error("Failed to create vertex buffer!");
+                                return;
+                            }
+                        }
+                        else if (bufSz < dataSize)
+                        {
+                            // Reallocate if the current buffer is too small.
+                            SDL_ReleaseGPUBuffer(gpu_device, hw_vertex_buffer);
+                            SDL_GPUBufferCreateInfo vbci;
+                            SDL_zero(vbci);
+                            vbci.size = dataSize;
+                            vbci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+                            bufSz = dataSize;
+                            hw_vertex_buffer = SDL_CreateGPUBuffer(gpu_device, &vbci);
+                        }
+
+                        SDL_GPUTransferBufferCreateInfo tbci;
+                        SDL_zero(tbci);
+                        tbci.size = dataSize;
+                        tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+                        SDL_GPUTransferBuffer *transferBuffer = SDL_CreateGPUTransferBuffer(gpu_device, &tbci);
+
+                        void *transferData = SDL_MapGPUTransferBuffer(gpu_device, transferBuffer, false);
+
+                        SDL_memcpy(transferData, pkt.vertices.data(), dataSize);
+
+                        SDL_UnmapGPUTransferBuffer(gpu_device, transferBuffer);
+
+                        SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(command_buffer);
+
+                        SDL_GPUTransferBufferLocation transferBufferLocation = {.transfer_buffer = transferBuffer,
+                                                                                .offset = 0};
+
+                        SDL_GPUBufferRegion bufferRegion = {.buffer = hw_vertex_buffer, .offset = 0, .size = dataSize};
+
+                        SDL_UploadToGPUBuffer(copyPass, &transferBufferLocation, &bufferRegion, false);
+
+                        SDL_EndGPUCopyPass(copyPass);
+
+                        SDL_GPUColorTargetInfo colorTargetInfo = {0};
+                        colorTargetInfo.texture = emu_texure;
+                        colorTargetInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
+                        colorTargetInfo.load_op = SDL_GPU_LOADOP_LOAD;
+                        colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+
+                        SDL_GPURenderPass *renderPass =
+                            SDL_BeginGPURenderPass(command_buffer, &colorTargetInfo, 1, NULL);
+
+                        SDL_GPUViewport viewport;
+                        viewport.x = 0.0f;
+                        viewport.y = 0.0f;
+                        viewport.w = static_cast<float>(this->bus.gs.framebuffer1.width);
+                        viewport.h = static_cast<float>(this->bus.gs.framebuffer1.height);
+                        viewport.min_depth = 0.0f;
+                        viewport.max_depth = 1.0f;
+                        SDL_SetGPUViewport(renderPass, &viewport);
+
+                        uint64_t scissor = this->bus.gs.gs_registers[0x40];
+
+                        int scax0 = scissor & 0x7FF;
+                        int scax1 = (scissor >> 16) & 0x7FF;
+                        int scay0 = (scissor >> 32) & 0x7FF;
+                        int scay1 = (scissor >> 48) & 0x7FF;
+
+                        SDL_Rect scissorRect = {scax0, scay0, scax1 - scax0 + 1, scay1 - scay0 + 1};
+                        SDL_SetGPUScissor(renderPass, &scissorRect);
+
+                        SDL_BindGPUGraphicsPipeline(renderPass, hw_pipeline);
+
+                        SDL_GPUBufferBinding vertexBufferBinding = {.buffer = hw_vertex_buffer, .offset = 0};
+                        SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+                        SDL_DrawGPUPrimitives(renderPass, pkt.vertices.size(), 1, 0, 0);
+                        SDL_EndGPURenderPass(renderPass);
+                    }
+                }
+            }
+
+            Uint64 gs_render_end = SDL_GetPerformanceCounter();
+            Uint64 gs_render_ticks = gs_render_end - gs_render_start;
+            gs_total_render_time += gs_render_ticks;
+            gs_frame_count++;
+
+            Uint64 current_time = SDL_GetPerformanceCounter();
+            double gs_elapsed = (current_time - gs_prev_time) / (double)SDL_GetPerformanceFrequency();
+            if (gs_elapsed >= 1.0)
+            {
+                double gs_fps = gs_frame_count / gs_elapsed;
+                double gs_usage = (gs_total_render_time / (double)SDL_GetPerformanceFrequency()) / gs_elapsed * 100.0;
+                gPerfMetrics.gs_fps = gs_fps;
+                gPerfMetrics.gs_usage = gs_usage;
+                /* Logger::info(
+                    "GS FPS: " + std::to_string(gs_fps) + "   GS Render Time: " +
+                             std::to_string((gs_total_render_time / (double)SDL_GetPerformanceFrequency()) * 1000.0) +
+                             "ms" + "   GS Usage: " + std::to_string(gs_usage) + "%");*/
+
+                gs_prev_time = current_time;
+                gs_frame_count = 0;
+                gs_total_render_time = 0;
+            }
         }
         
         // Submit the command buffer

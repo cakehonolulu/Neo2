@@ -5,5 +5,5 @@
 struct Vertex {
     float x, y, z;
     uint32_t color;
-    float u, v;
+    //float u, v;
 };

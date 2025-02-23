@@ -9,6 +9,54 @@
 #include <vertex.hh>
 #include <frontends/imgui/sdl3_gpu_renderer.h>
 
+template <typename T, size_t Size> class LockFreeSPSCQueue
+{
+  public:
+    LockFreeSPSCQueue() : head(0), tail(0)
+    {
+    }
+
+    // Push an item into the queue. Returns false if full.
+    bool push(const T &item)
+    {
+        size_t currentTail = tail.load(std::memory_order_relaxed);
+        size_t nextTail = (currentTail + 1) % Size;
+        if (nextTail == head.load(std::memory_order_acquire))
+        {
+            // The queue is full.
+            return false;
+        }
+        buffer[currentTail] = item;
+        tail.store(nextTail, std::memory_order_release);
+        return true;
+    }
+
+    // Pop an item from the queue. Returns false if empty.
+    bool pop(T &item)
+    {
+        size_t currentHead = head.load(std::memory_order_relaxed);
+        if (currentHead == tail.load(std::memory_order_acquire))
+        {
+            // The queue is empty.
+            return false;
+        }
+        item = buffer[currentHead];
+        head.store((currentHead + 1) % Size, std::memory_order_release);
+        return true;
+    }
+
+    // Returns true if the queue is empty.
+    bool empty() const
+    {
+        return head.load(std::memory_order_acquire) == tail.load(std::memory_order_acquire);
+    }
+
+  private:
+    T buffer[Size];
+    std::atomic<size_t> head;
+    std::atomic<size_t> tail;
+};
+
 // New structures for GS_Framebuffer and vertex buffer
 struct GS_Framebuffer {
     uint32_t* data;
@@ -29,6 +77,12 @@ enum class PrimitiveType {
 static const char* prims[] = { "", "", "", "Triangle", "", "", "Sprite"};
 
 struct Primitive {
+    PrimitiveType type;
+    std::vector<Vertex> vertices;
+};
+
+struct VertexPacket
+{
     PrimitiveType type;
     std::vector<Vertex> vertices;
 };
@@ -126,9 +180,6 @@ public:
     void draw_triangle_software(const std::vector<Vertex>& vertices);
     void draw_sprite_software(const std::vector<Vertex>& vertices);
 
-    // Hardware renderer.
-    void UploadHWVertexData(const std::vector<Vertex> &vertices);
-
     // Branching methods.
     void draw_point(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
@@ -181,6 +232,9 @@ public:
     bool hw_renderer_draw = false;
 
     std::deque<Primitive> prim_queue;
+
+    LockFreeSPSCQueue<VertexPacket, 1024> *packetQueue = new LockFreeSPSCQueue<VertexPacket, 1024>();
+    std::atomic<bool> newVerticesAvailable{false};
 
   private:
     uint64_t bitbltbuf = 0;
