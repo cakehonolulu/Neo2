@@ -484,8 +484,62 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
     // if ((current_prim & 0x7) == 6) printf("Got vertex data: x: %.0f, y: %.0f\n", x, y);
 
-    vertex_buffer.push_back({x, y, static_cast<float>(z), color});
-    vertex_count++;
+    if (prim_type_ == PrimitiveType::Sprite)
+    {
+        if (vertex_count == 0)
+        {
+            vertex_buffer.push_back({x, y, static_cast<float>(z), color});
+            vertex_count = 1;
+            return; // Wait for the second vertex.
+        }
+        else if (vertex_count == 1)
+        {
+            Vertex v0 = vertex_buffer[0];
+            Vertex v1 = {x, y, static_cast<float>(z), color};
+
+            float left = (v0.x < v1.x) ? v0.x : v1.x;
+            float right = (v0.x > v1.x) ? v0.x : v1.x;
+            float top = (v0.y < v1.y) ? v0.y : v1.y;
+            float bottom = (v0.y > v1.y) ? v0.y : v1.y;
+
+            Vertex tl = {left, top, v0.z, v0.color};
+            Vertex tr = {right, top, v0.z, v0.color};
+            Vertex bl = {left, bottom, v0.z, v0.color};
+            Vertex br = {right, bottom, v0.z, v0.color};
+
+            vertex_buffer.clear();
+            vertex_buffer.push_back(tl);
+            vertex_buffer.push_back(bl);
+            vertex_buffer.push_back(tr);
+            vertex_buffer.push_back(tr);
+            vertex_buffer.push_back(bl);
+            vertex_buffer.push_back(br);
+
+            vertex_count = 6;
+
+            if (vertex_kick)
+            {
+                VertexPacket packet;
+                packet.type = prim_type_;
+                packet.vertices = vertex_buffer;
+                if (!packetQueue->push(packet))
+                {
+                    Logger::warn("Packet queue full, dropping packet!");
+                }
+            }
+            return;
+        }
+        else
+        {
+            // If somehow more than two vertices are added for a sprite, ignore additional ones.
+            return;
+        }
+    }
+    else
+    {
+        vertex_buffer.push_back({x, y, static_cast<float>(z), color});
+        vertex_count++;
+    }
 
     uint32_t prim_type = current_prim & 0x7;
     bool should_draw = false;
