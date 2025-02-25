@@ -445,6 +445,7 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     int gs_vblank_event_id = scheduler.register_function([this](uint64_t cycles) {
         this->bus.gs.simul_vblank();
+        this->bus.gs.batch_draw();
     });
 
     int gs_vblank_task_id = scheduler.register_function([this, &scheduler, &gs_vblank_event_id](uint64_t cycles) {

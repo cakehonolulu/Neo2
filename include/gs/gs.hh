@@ -184,8 +184,6 @@ public:
     void draw_point(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
             draw_point_software(vertices[0]);
-        /* else
-            UploadHWVertexData(vertices[0]);*/
     }
 
     void draw_triangle(const std::vector<Vertex>& vertices) {
@@ -193,20 +191,12 @@ public:
         {
             draw_triangle_software(vertices);
         }
-        else
-        {
-            //UploadHWVertexData(vertices);
-        }
     }
 
     void draw_sprite(const std::vector<Vertex>& vertices) {
         if (render_mode == RenderMode::Software)
         {
             draw_sprite_software(vertices);
-        }
-        else
-        {
-            //UploadHWVertexData(vertices);
         }
     }
 

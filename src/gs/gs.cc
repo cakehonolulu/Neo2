@@ -444,11 +444,8 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
         batch_draw();
 
-        if (render_mode == RenderMode::Software)
-        {
-            vertex_buffer.clear();
-            vertex_count = 0;
-        }
+        vertex_buffer.clear();
+        vertex_count = 0;
     }
 
     int16_t x_fixed = static_cast<int16_t>((data >> 0) & 0xFFFF);
@@ -484,55 +481,63 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
     // if ((current_prim & 0x7) == 6) printf("Got vertex data: x: %.0f, y: %.0f\n", x, y);
 
-    if (prim_type_ == PrimitiveType::Sprite)
+    if (render_mode != RenderMode::Software)
     {
-        if (vertex_count == 0)
+        if (prim_type_ == PrimitiveType::Sprite)
         {
-            vertex_buffer.push_back({x, y, static_cast<float>(z), color});
-            vertex_count = 1;
-            return; // Wait for the second vertex.
-        }
-        else if (vertex_count == 1)
-        {
-            Vertex v0 = vertex_buffer[0];
-            Vertex v1 = {x, y, static_cast<float>(z), color};
-
-            float left = (v0.x < v1.x) ? v0.x : v1.x;
-            float right = (v0.x > v1.x) ? v0.x : v1.x;
-            float top = (v0.y < v1.y) ? v0.y : v1.y;
-            float bottom = (v0.y > v1.y) ? v0.y : v1.y;
-
-            Vertex tl = {left, top, v0.z, v0.color};
-            Vertex tr = {right, top, v0.z, v0.color};
-            Vertex bl = {left, bottom, v0.z, v0.color};
-            Vertex br = {right, bottom, v0.z, v0.color};
-
-            vertex_buffer.clear();
-            vertex_buffer.push_back(tl);
-            vertex_buffer.push_back(bl);
-            vertex_buffer.push_back(tr);
-            vertex_buffer.push_back(tr);
-            vertex_buffer.push_back(bl);
-            vertex_buffer.push_back(br);
-
-            vertex_count = 6;
-
-            if (vertex_kick)
+            if (vertex_count == 0)
             {
-                VertexPacket packet;
-                packet.type = prim_type_;
-                packet.vertices = vertex_buffer;
-                if (!packetQueue->push(packet))
-                {
-                    Logger::warn("Packet queue full, dropping packet!");
-                }
+                vertex_buffer.push_back({x, y, static_cast<float>(z), color});
+                vertex_count = 1;
+                return; // Wait for the second vertex.
             }
-            return;
+            else if (vertex_count == 1)
+            {
+                Vertex v0 = vertex_buffer[0];
+                Vertex v1 = {x, y, static_cast<float>(z), color};
+
+                float left = (v0.x < v1.x) ? v0.x : v1.x;
+                float right = (v0.x > v1.x) ? v0.x : v1.x;
+                float top = (v0.y < v1.y) ? v0.y : v1.y;
+                float bottom = (v0.y > v1.y) ? v0.y : v1.y;
+
+                Vertex tl = {left, top, v0.z, v0.color};
+                Vertex tr = {right, top, v0.z, v0.color};
+                Vertex bl = {left, bottom, v0.z, v0.color};
+                Vertex br = {right, bottom, v0.z, v0.color};
+
+                vertex_buffer.clear();
+                vertex_buffer.push_back(tl);
+                vertex_buffer.push_back(bl);
+                vertex_buffer.push_back(tr);
+                vertex_buffer.push_back(tr);
+                vertex_buffer.push_back(bl);
+                vertex_buffer.push_back(br);
+
+                vertex_count = 6;
+
+                if (vertex_kick)
+                {
+                    VertexPacket packet;
+                    packet.type = prim_type_;
+                    packet.vertices = vertex_buffer;
+                    if (!packetQueue->push(packet))
+                    {
+                        Logger::warn("Packet queue full, dropping packet!");
+                    }
+                }
+                return;
+            }
+            else
+            {
+                // If somehow more than two vertices are added for a sprite, ignore additional ones.
+                return;
+            }
         }
         else
         {
-            // If somehow more than two vertices are added for a sprite, ignore additional ones.
-            return;
+            vertex_buffer.push_back({x, y, static_cast<float>(z), color});
+            vertex_count++;
         }
     }
     else
@@ -569,20 +574,34 @@ void GS::add_vertex(uint64_t data, bool vertex_kick)
 
         if (should_draw)
         {
-            // Create a packet with the complete primitive.
-            VertexPacket packet;
-            packet.type = static_cast<PrimitiveType>(current_prim & 0x7);
-            packet.vertices = vertex_buffer; // Copy the complete vertex data.
-
-            // Push the packet into the packet queue.
-            if (!packetQueue->push(packet))
+            if (render_mode != RenderMode::Software)
             {
-                Logger::warn("Packet queue full, dropping packet!");
+                // Create a packet with the complete primitive.
+                VertexPacket packet;
+                packet.type = static_cast<PrimitiveType>(current_prim & 0x7);
+                packet.vertices = vertex_buffer; // Copy the complete vertex data.
+
+                // Push the packet into the packet queue.
+                if (!packetQueue->push(packet))
+                {
+                    Logger::warn("Packet queue full, dropping packet!");
+                }
+                else
+                {
+                    // Signal the main thread that a new packet is available.
+                    // newVerticesAvailable.store(true, std::memory_order_release);
+                }
             }
             else
             {
-                // Signal the main thread that a new packet is available.
-                //newVerticesAvailable.store(true, std::memory_order_release);
+                PrimitiveType prim_type = static_cast<PrimitiveType>(current_prim & 0x7);
+
+                Primitive prim;
+                prim.type = static_cast<PrimitiveType>(prim_type);
+                prim.vertices = vertex_buffer;
+                prim_queue.push_back(prim);
+                vertex_buffer.clear();
+                vertex_count = 0;
             }
         }
     }
