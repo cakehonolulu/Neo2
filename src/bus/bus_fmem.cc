@@ -35,7 +35,7 @@ void Bus::fmem_init() {
     TLBEntry entry;
 
     // KSEG1 (uncached BIOS)
-    entry.page_mask = 0x1FFF; // 4KB pages
+    entry.page_mask = 0x0FFF;
     entry.entry_hi = 0xBFC00000; // Virtual address
     entry.entry_lo0 = 0x1FC00000 >> 12; // Physical address shifted (PFN for 0x1FC00000)
     entry.entry_lo1 = 0x1FC01000 >> 12; // Next page
@@ -49,7 +49,7 @@ void Bus::fmem_init() {
     tlb.write_entry_(1, entry);
 
     // KUSEG (RAM)
-    entry.page_mask = 0x007FE000; // 4MB pages
+    entry.page_mask = 0x01FF;
     entry.entry_hi = 0x00000000;
     entry.entry_lo0 = 0x00000000 >> 12; // Physical address shifted (PFN for 0x00000000)
     entry.entry_lo1 = 0x00400000 >> 12; // For next 4MB page
@@ -300,14 +300,18 @@ T io_read(Bus *bus, std::uint32_t address) {
         }
 
         default:
-            std::string type_str = (sizeof(T) == 1 ? "8-bit read"  :
-                                    sizeof(T) == 2 ? "16-bit read" :
-                                    sizeof(T) == 4 ? "32-bit read" :
-                                    sizeof(T) == 8 ? "64-bit read" : "128-bit read");
-            std::string msg = type_str + " from unknown address: 0x" + format("{:08X}", address);
-            Logger::error(msg.c_str());
-            return static_cast<T>(Neo2::exit(1, Neo2::Subsystem::Bus));
+            goto ret;
     }
+
+ret:
+    std::string type_str = (sizeof(T) == 1   ? "8-bit read"
+                            : sizeof(T) == 2 ? "16-bit read"
+                            : sizeof(T) == 4 ? "32-bit read"
+                            : sizeof(T) == 8 ? "64-bit read"
+                                             : "128-bit read");
+    std::string msg = type_str + " from unknown address: 0x" + format("{:08X}", address);
+    Logger::error(msg.c_str());
+    return static_cast<T>(Neo2::exit(1, Neo2::Subsystem::Bus));
 }
 
 template <typename T>

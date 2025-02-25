@@ -82,75 +82,54 @@ void Bus::load_bios(const std::string &bios_path)
     bios_file.close();
 }
 
-uint32_t Bus::map_to_phys(uint32_t vaddr, const TLB& tlb) {
+uint32_t Bus::map_to_phys(uint32_t vaddr, const TLB &tlb)
+{
     // Direct-mapped regions (kseg0, kseg1)
-    if (vaddr >= 0x80000000 && vaddr < 0xA0000000) {
-        // kseg0: Cached
-        return vaddr & 0x1FFFFFFF;
-    } else if (vaddr >= 0xA0000000 && vaddr < 0xC0000000) {
-        // kseg1: Uncached
+    if (vaddr >= 0x80000000 && vaddr < 0xC0000000)
+    {
         return vaddr & 0x1FFFFFFF;
     }
 
     // TLB-mapped regions
-    const TLBEntry* entry = tlb.find_entry(vaddr);
-    
-    if (entry) {
-        // Check the ASID match if not global
-        bool asid_match = (entry->global || (entry->asid == (vaddr >> 13 & 0xFF)));
-        
-        if (vaddr == 0xB0008000)
+    const TLBEntry *entry = tlb.find_entry(vaddr);
+    if (entry)
+    {
+        // Determine effective page size.
+        // The PageMask field (lower 12 bits) is stored directly in the TLBEntry.
+        // For a 4KB page, PageMask is 0; then page_size = (0+1) << 12 = 4096.
+        // For a 16KB page, PageMask might be 0x3; then page_size = (3+1) << 12 = 16384.
+        uint32_t effective_mask = entry->page_mask & 0xFFF;
+        uint32_t page_size = (effective_mask + 1) << 12;
+
+        // Compute the number of offset bits = log2(page_size).
+        uint32_t shift = 0;
+        for (uint32_t temp = page_size; temp > 1; temp >>= 1)
         {
-            Logger::info("Checking TLB entry for vaddr 0x" + format("{:08X}", vaddr) + ". ASID match: " + format("{:X}", asid_match));
+            shift++;
         }
 
-        // If ASID matches, determine whether even or odd page is valid
-        if (asid_match) {
-            uint32_t vpn2_vaddr = (vaddr >> 13) & 0x7FFFF;  // Extract VPN2 from vaddr
-            uint32_t page_offset = vaddr & 0xFFF;  // Extract page offset
-                
-            if (vaddr == 0xB0008000)
+        // Compute page offset from vaddr.
+        uint32_t page_offset = vaddr & ((1u << shift) - 1);
+        // Compute full virtual page number.
+        uint32_t vpn = vaddr >> shift;
+        // The least-significant bit of vpn indicates even (0) or odd (1) page.
+        if ((vpn & 1u) == 0)
+        {
+            if (entry->v0)
             {
-                Logger::info("Virtual address 0x" + format("{:08X}", vaddr) + " corresponds to VPN2 0x" + format("{:X}", vpn2_vaddr));
-            }
-
-            // Check even page (pfn0)
-            if ((vpn2_vaddr == (entry->vpn2 * 2)) && entry->v0) {
-                uint32_t phys_addr = (entry->pfn0 << 12) | page_offset;
-
-                if (vaddr == 0xB0008000)
-                {
-                    Logger::info("Even page valid, mapping to physical address 0x" + format("{:08X}", phys_addr));
-                }
-
+                uint32_t phys_addr = (entry->pfn0 << shift) | page_offset;
                 return phys_addr;
             }
-            // Check odd page (pfn1)
-            if ((vpn2_vaddr == (entry->vpn2 * 2 + 1)) && entry->v1) {
-                uint32_t phys_addr = (entry->pfn1 << 12) | page_offset;
-
-                if (vaddr == 0xB0008000)
-                {
-                    Logger::info("Odd page valid, mapping to physical address 0x" + format("{:08X}", phys_addr));
-                }
-
+        }
+        else
+        {
+            if (entry->v1)
+            {
+                uint32_t phys_addr = (entry->pfn1 << shift) | page_offset;
                 return phys_addr;
-            }
-
-            // If no valid page found
-            if (vaddr == 0xB0008000)
-            {
-                Logger::warn("No valid page found for virtual address 0x" + format("{:08X}", vaddr));
-            }
-        } else {
-            if (vaddr == 0xB0008000)
-            {
-                Logger::warn("ASID mismatch for virtual address 0x" + format("{:08X}", vaddr));
             }
         }
     }
-
-    // If no TLB entry matches, return the original virtual address
-    //Logger::warn("Virtual address 0x" + format("{:08X}", vaddr) + " could not be translated to a physical address.");
-    return vaddr;  // Default behavior; adjust as needed
+    // If no matching TLB entry is found (or invalid), return vaddr.
+    return vaddr;
 }
