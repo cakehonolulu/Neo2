@@ -773,19 +773,19 @@ void EEJIT::ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     // Create pointers to the general-purpose registers (GPR)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+        llvm::PointerType::getUnqual(builder->getInt64Ty())
     );
 
     // Load the value from the RS register
     llvm::Value* rs_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4))
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rs * 2))
     );
 
     // Load the value from the RT register
     llvm::Value* rt_value = builder->CreateLoad(
-        builder->getInt32Ty(),
-        builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4))
+        builder->getInt64Ty(),
+        builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2))
     );
 
     // Perform the bitwise OR operation
@@ -793,9 +793,9 @@ void EEJIT::ee_jit_or(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
 
     // Store the result in the RD register
     llvm::Value* rd_ptr = builder->CreateGEP(
-        builder->getInt32Ty(),
+        builder->getInt64Ty(),
         gpr_base,
-        builder->getInt32(rd * 4)
+        builder->getInt64(rd * 2)
     );
     builder->CreateStore(result, rd_ptr);
 
