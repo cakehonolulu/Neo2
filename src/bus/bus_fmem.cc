@@ -55,40 +55,6 @@ void Bus::fmem_init() {
     entry.entry_lo1 = 0x00400000 >> 12; // For next 4MB page
     entry.global = true;
     tlb.write_entry_(2, entry);
-    // KSEG1 (uncached BIOS, 4KB pages)
-    /*entry.page_mask = 0x00001FFF; // 4KB page size (mask)
-    entry.vpn2 = 0xBFC00000 >> 13; // VPN2 (Virtual Page Number / 2)
-    entry.pfn0 = 0x1FC00000 >> 12; // PFN0 (Physical Frame Number for even page)
-    entry.pfn1 = 0x1FC01000 >> 12; // PFN1 (Physical Frame Number for odd page)
-    entry.v0 = true;               // Even page valid
-    entry.v1 = true;               // Odd page valid
-    entry.d0 = true;               // Even page writable (dirty)
-    entry.d1 = true;               // Odd page writable (dirty)
-    entry.c0 = 2;                  // Cache mode for even page: Uncached
-    entry.c1 = 2;                  // Cache mode for odd page: Uncached
-    entry.asid = 0;                // Address Space ID (not relevant here)
-    entry.global = true;           // Global mapping
-    tlb.write_entry_(0, entry);
-
-    // KSEG0 (cached BIOS, 4KB pages)
-    entry.vpn2 = 0x9FC00000 >> 13; // VPN2 (Virtual Page Number / 2)
-    entry.c0 = 3;                  // Cache mode for even page: Cached
-    entry.c1 = 3;                  // Cache mode for odd page: Cached
-    tlb.write_entry_(1, entry);
-
-    // KUSEG (RAM, 4MB pages)
-    entry.page_mask = 0x007FE000;  // 4MB page size (mask)
-    entry.vpn2 = 0x00000000 >> 13; // VPN2 (Virtual Page Number / 2)
-    entry.pfn0 = 0x00000000 >> 12; // PFN0 (Physical Frame Number for even page)
-    entry.pfn1 = 0x00400000 >> 12; // PFN1 (Physical Frame Number for odd page)
-    entry.v0 = true;               // Even page valid
-    entry.v1 = true;               // Odd page valid
-    entry.d0 = true;               // Even page writable (dirty)
-    entry.d1 = true;               // Odd page writable (dirty)
-    entry.c0 = 3;                  // Cache mode for even page: Cached
-    entry.c1 = 3;                  // Cache mode for odd page: Cached
-    entry.global = true;           // Global mapping
-    tlb.write_entry_(2, entry);*/
 
     // PS2's Address Space is 4GB, divided into 4KB pages
     address_space_r = new uintptr_t[0x100000];  // Readable memory pages (4KB * 1024 * 1024 = 4GB)
@@ -97,10 +63,9 @@ void Bus::fmem_init() {
     memset(address_space_r, 0, sizeof(uintptr_t) * 0x100000);
     memset(address_space_w, 0, sizeof(uintptr_t) * 0x100000);
 
-    // Map BIOS pages into KUSEG, KSEG0, and KSEG1 (uncached and cached)
+    // Map BIOS pages into KUSEG, KSEG0, and KSEG1 (uncached and cached)    
     for (auto pageIndex = 0; pageIndex < 1024; pageIndex++) {
         const auto pointer = (uintptr_t)&bios[(pageIndex * PAGE_SIZE)]; // pointer to page #pageIndex of the BIOS
-
         // Map BIOS to KUSEG, KSEG0, KSEG1
         address_space_r[pageIndex + 0x1FC00] = pointer;  // KUSEG BIOS
         address_space_r[pageIndex + 0x9FC00] = pointer;  // KSEG0 BIOS (cached)
@@ -112,6 +77,14 @@ void Bus::fmem_init() {
         const auto pointer = (uintptr_t)&ram[(pageIndex * PAGE_SIZE)];  // Main RAM pointer
         address_space_r[pageIndex] = pointer;  // Map to KUSEG main RAM
         address_space_w[pageIndex] = pointer;  // Map to KSEG0/KSEG1 main RAM (can write to it)
+    }
+
+    // IOP RAM: 2 MB starting at physical address 0x1C000000
+    for (auto pageIndex = 0; pageIndex < 0x200; pageIndex++)
+    {                                                                  // 2 MB / 4KB per page = 0x200 pages
+        const auto pointer = (uintptr_t)&iop_ram[(pageIndex * PAGE_SIZE)];  // IOP RAM pointer
+        address_space_r[pageIndex + 0x1C000] = pointer;  // Map to IOP RAM
+        address_space_w[pageIndex + 0x1C000] = pointer;  // Map to IOP RAM (can write to it)
     }
 }
 
@@ -258,6 +231,7 @@ T io_read(Bus *bus, std::uint32_t address) {
 
         case 0x1000F450:
         case 0x1000F460:
+        case 0x1000F480:
             return static_cast<T>(0x0);
 
         case 0x1000F510 ... 0x1000F590:
@@ -274,11 +248,10 @@ T io_read(Bus *bus, std::uint32_t address) {
             }
             break;
 
-        // Has to return 0 else starts a write loop from 0x1C000015 onwards?
-        case 0x1C0003C0:
-        {
-            if constexpr (sizeof(T) == 4) {
-                return static_cast<uint32_t>(0x0);
+        case 0x1F801100 ... 0x1F80112F: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(bus->iop_timers.read(address));
             }
             break;
         }
@@ -287,6 +260,20 @@ T io_read(Bus *bus, std::uint32_t address) {
         {
             if constexpr (sizeof(T) == 4) {
                 return static_cast<uint32_t>(dev9_delay3);
+            }
+            break;
+        }
+        
+        // TOOL Model?
+        /*
+            https://web.archive.org/web/20210321075609/
+            https://www.obscuregamers.com/threads/running-ps1-game-on-dtl-t10000-tool.1949/
+        */
+        case 0x1F803204:
+        {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(0x20);
             }
             break;
         }
@@ -299,6 +286,21 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
 
+        case 0x1F801480 ... 0x1F8014AF: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(bus->iop_timers.read(address));
+            }
+            break;
+        }
+
+        case 0xFFFFFFF0 ... 0xFFFFFFFF: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(0x0);
+            }
+            break;
+        }
         default:
             goto ret;
     }
@@ -456,6 +458,7 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
         case 0x1000F460:
         case 0x1000F480:
         case 0x1000F490:
+        case 0x1000F4A0:
             break;
 
         case 0x1000F500:
@@ -504,12 +507,17 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
-        case 0x1C0003E0:
-            break;
-
         case 0x1F801010:
             // NOP, unknown register
             break;
+            
+        case 0x1F801100 ... 0x1F80112F: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->iop_timers.write(address, value);
+            }
+            break;
+        }
 
         case 0x1F80141C:
         {
@@ -528,6 +536,17 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
 
+        case 0x1F801480 ... 0x1F8014AF: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->iop_timers.write(address, value);
+            }
+            break;
+        }
+
+        case 0xFFFFFFF0 ... 0xFFFFFFFF: {
+            break;
+        }
         default:
 error:
             std::string type_str = (sizeof(T) == 1 ? "8-bit write"  :
@@ -623,8 +642,9 @@ std::uint64_t Bus::fmem_read64(std::uint32_t address)
     if (address >= 0x70000000 && address < 0x70004000) {
         return *reinterpret_cast<std::uint64_t*>(&scratchpad[address - 0x70000000]);
     }
-    
+
     address = map_to_phys(address, tlb);
+
     const auto page = address >> 12;            // Divide the address by 4KB to get the page number.
     const auto offset = address & 0xFFF;        // The offset inside the 4KB page
     const auto pointer = address_space_r[page]; // Get the pointer to this page
