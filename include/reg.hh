@@ -8,7 +8,7 @@ union uint128_t {
     std::uint32_t u32[4];
     std::uint16_t u16[8];
     std::uint8_t u8[16];
-};
+} __attribute__((__packed__));
 
 union fpu_reg_t {
     std::uint32_t u32;
