@@ -20,7 +20,10 @@ EE_DMAC::EE_DMAC(Bus& bus) : bus(bus) {
     D_SQWC = 0;
     D_RBSR = 0;
     D_RBOR = 0;
-    D_ENABLER = 0;
+    D_STADR = 0;
+    // This is apparently needed for newer BIOSes?
+    // TODO: Based on BIOS checksum set it to this value, else to 0
+    D_ENABLER = 0x1201;
     D_ENABLEW = 0;
 
     // Initialize channels with names
@@ -73,6 +76,8 @@ void EE_DMAC::write_register(uint32_t address, uint32_t value) {
             case 0x1000E030: global_register_name = "D_SQWC"; D_SQWC = value; break;
             case 0x1000E040: global_register_name = "D_RBSR"; D_RBSR = value; break;
             case 0x1000E050: global_register_name = "D_RBOR"; D_RBOR = value; break;
+            case 0x1000E060: global_register_name = "D_STADR"; D_STADR = value; break;
+            case 0x1000F520: global_register_name = "D_ENABLER"; D_ENABLER = value; break;
             case 0x1000F590: global_register_name = "D_ENABLEW"; D_ENABLEW = value; break;
             default:
                 Logger::error("Invalid DMAC address: 0x" + format("{:08X}", address));
@@ -122,6 +127,8 @@ uint32_t EE_DMAC::read_register(uint32_t address) {
             case 0x1000E030: global_register_name = "D_SQWC"; value = D_SQWC; break;
             case 0x1000E040: global_register_name = "D_RBSR"; value = D_RBSR; break;
             case 0x1000E050: global_register_name = "D_RBOR"; value = D_RBOR; break;
+            case 0x1000E060: global_register_name = "D_STADR"; value = D_STADR; break;
+            case 0x1000F520: global_register_name = "D_ENABLER"; value = D_ENABLER; break;
             case 0x1000F590: global_register_name = "D_ENABLEW"; value = D_ENABLEW; break;
             default:
                 Logger::error("Invalid DMAC address: 0x" + format("{:08X}", address));

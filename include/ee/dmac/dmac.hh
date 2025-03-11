@@ -40,6 +40,7 @@ private:
     uint32_t D_SQWC = 0;    // DMAC skip quadword
     uint32_t D_RBSR = 0;    // DMAC ringbuffer size
     uint32_t D_RBOR = 0;    // DMAC ringbuffer offset
+    uint32_t D_STADR = 0;   // DMAC stall address
     uint32_t D_ENABLER = 0; // DMAC disabled status
     uint32_t D_ENABLEW = 0; // DMAC disable
 
