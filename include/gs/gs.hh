@@ -6,6 +6,7 @@
 #include <vector>
 #include <queue>
 #include <mutex>
+#include <atomic>
 #include <vertex.hh>
 #include <frontends/imgui/sdl3_gpu_renderer.h>
 
