@@ -346,21 +346,21 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     static char new_cop0_value[128] = "";
 
     // Lambda to render register with optional input field
-    auto render_register_ = [&](const char* label, __int128 value, int reg_index = -1) {
-        ImGui::Text("%s: 0x%016llX%016llX", label, (uint64_t)((value << 64) & 0xFFFFFFFFFFFFFFFF),
-                    (uint64_t) (value & 0xFFFFFFFFFFFFFFFF));
+    auto render_register_ = [&](const char* label, uint128_t value, int reg_index = -1) {
+        ImGui::Text("%s: 0x%016llX%016llX", label, value.u64[1],
+                    value.u64[0]);
         if (ImGui::IsItemClicked()) {
             selected_register = reg_index;
-            snprintf(new_value, sizeof(new_value), "%016llX%016llX", (uint64_t)((value << 64) & 0xFFFFFFFFFFFFFFFF),
-                     (uint64_t)(value & 0xFFFFFFFFFFFFFFFF));
+            snprintf(new_value, sizeof(new_value), "%016llX%016llX", value.u64[1],
+                     value.u64[0]);
         }
 
         if (selected_register == reg_index) {
             ImGui::InputText("##edit", new_value, sizeof(new_value), ImGuiInputTextFlags_CharsHexadecimal);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
-                value = strtoull(new_value, nullptr, 16);
+                value.u128 = strtoull(new_value, nullptr, 16);
                 if (auto* ee = dynamic_cast<EE*>(cpu)) {
-                    ee->registers[reg_index].u128 = value;
+                    ee->registers[reg_index].u128 = value.u128;
                 }
                 selected_register = -1; // Deselect the register after editing
             }
@@ -433,7 +433,7 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
                 }
                 ImVec4 color = ImVec4(1.0f, 1.0f - ee_register_change_timers[i], 1.0f - ee_register_change_timers[i], 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                render_register_(mips_register_names[i].c_str(), current_value.u128, i); // Use the lambda to render registers
+                render_register_(mips_register_names[i].c_str(), current_value, i); // Use the lambda to render registers
                 ImGui::PopStyleColor();
                 if (ee_register_change_timers[i] > 0.0f) {
                     ee_register_change_timers[i] -= ImGui::GetIO().DeltaTime;
