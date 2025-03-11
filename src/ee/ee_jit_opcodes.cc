@@ -90,6 +90,7 @@ void EEJIT::initialize_opcode_table() {
 
     opcode_table[0x1C].funct3_map[0x12] = {&EEJIT::ee_jit_mflo1, Default}; // MFLO1 opcode
     opcode_table[0x1C].funct3_map[0x18] = {&EEJIT::ee_jit_mult1, MMI_Mult}; // MULT1 opcode
+    opcode_table[0x1C].funct3_map[0x1A] = {&EEJIT::ee_jit_div1, MMI_Div};         // DIV1 opcode
     opcode_table[0x1C].funct3_map[0x1B] = {&EEJIT::ee_jit_divu1, MMI_Div}; // DIVU1 opcode
     opcode_table[0x1C].subfunc_map[0x28][0x10] = {&EEJIT::ee_jit_padduw, Default}; // PADDUW opcode
     opcode_table[0x1C].subfunc_map[0x29][0x12] = {&EEJIT::ee_jit_or, Default}; // POR opcode
@@ -2422,7 +2423,7 @@ void EEJIT::ee_jit_lq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     // Get the GPR base pointer (points to the array of 128-bit registers)
     llvm::Value* gpr_base = builder->CreateIntToPtr(
         builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt128Ty()) // Access 128-bit registers directly
+        llvm::PointerType::getUnqual(builder->getInt64Ty()) // Access 128-bit registers directly
     );
 
     // Load the value of the base register (rs)
@@ -2459,17 +2460,14 @@ void EEJIT::ee_jit_lq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branc
     builder->CreateStore(
         lower_value,
         builder->CreateGEP(
-            builder->getInt64Ty(), gpr_base, builder->getInt64(rt) // GPR uses 128-bit registers
-        )
-    );
+            builder->getInt64Ty(), gpr_base, builder->getInt32(rt * 2) // GPR uses 128-bit registers
+        ));
+    builder->CreateStore(lower_value, builder->CreateGEP(builder->getInt64Ty(), gpr_base,
+                                                         builder->getInt32(rt + 3) // GPR uses 128-bit registers
+                                                         ));
 
     // Store the 128-bit value into the destination register (rt)
-    builder->CreateStore(
-        upper_value,
-        builder->CreateGEP(
-            builder->getInt64Ty(), gpr_base, builder->getInt64(rt + 1) // GPR uses 128-bit registers
-        )
-    );
+    builder->CreateStore(upper_value, builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt64(rt * 2)));
 
     // Update the program counter
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
@@ -3562,5 +3560,38 @@ void EEJIT::ee_jit_ei(uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE
     builder->SetInsertPoint(merge_block);
 
     // Emit the PC update.
+    EMIT_EE_UPDATE_PC(core, builder, current_pc);
+}
+
+void EEJIT::ee_jit_div1(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Extract RS (bits 21-25)
+    uint8_t rt = (opcode >> 16) & 0x1F; // Extract RT (bits 16-20)
+
+    // Load values from registers
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)));
+
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4)));
+
+    // Perform signed division
+    llvm::Value *quotient = builder->CreateSDiv(rs_value, rt_value);  // Signed division
+    llvm::Value *remainder = builder->CreateSRem(rs_value, rt_value); // Signed remainder
+
+    // Store the quotient in LO register (lo)
+    llvm::Value *lo_ptr = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                  llvm::PointerType::getUnqual(builder->getInt32Ty()));
+    builder->CreateStore(quotient, lo_ptr);
+
+    // Store the remainder in HI register (hi)
+    llvm::Value *hi_ptr = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                  llvm::PointerType::getUnqual(builder->getInt32Ty()));
+    builder->CreateStore(remainder, hi_ptr);
+
+    // Update PC and set is_branch to false
     EMIT_EE_UPDATE_PC(core, builder, current_pc);
 }
