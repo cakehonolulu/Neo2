@@ -7,6 +7,7 @@ target_sources(neo2
         iop/iop.cc
         iop/iop_interpreter.cc
         iop/iop_jit.cc
+        iop/iop_timer.cc
         ee/ee.cc
         ee/ee_interpreter.cc
         ee/ee_jit.cc
