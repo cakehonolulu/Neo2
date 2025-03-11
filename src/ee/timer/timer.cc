@@ -21,6 +21,8 @@ EE_Timer::EE_Timer() {
     }
 }
 
+static int timer0 = 0;
+
 uint32_t EE_Timer::read(uint32_t address) {
     std::string reg_name;
     uint32_t timer_index = (address >> 11) & 0x3; // Determine which timer
@@ -29,6 +31,11 @@ uint32_t EE_Timer::read(uint32_t address) {
         case 0x000:
             reg_name = format("TN_COUNT[{}]", timer_index);
             Logger::info("Timer register read from " + reg_name);
+            if (timer_index == 0)
+            {
+                timer0 += 1;
+                return timer0 >> 11;
+            }
             return timers[timer_index].count;
 
         case 0x010:
