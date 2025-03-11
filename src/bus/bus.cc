@@ -15,8 +15,8 @@ using std::format;
 using fmt::format;
 #endif
 
-Bus::Bus(BusMode mode) : tlb(32), sio(), ee_intc(), gif(*this), gs(), timers(),
-vif(), ipu(), dmac(*this) // Pass reference to Bus instance
+Bus::Bus(BusMode mode)
+    : tlb(32), sio(), ee_intc(), gif(*this), gs(), timers(), iop_timers(), vif(), ipu(), dmac(*this) // Pass reference to Bus instance
 {
     Logger::set_subsystem("BUS");
 
@@ -29,11 +29,16 @@ vif(), ipu(), dmac(*this) // Pass reference to Bus instance
     // RAM (32MB)
     ram.resize(1024 * 1024 * 32);
 
+    // IOP RAM (2MB
+    iop_ram.resize(1024 * 1024 * 2);
+
     std::fill(bios.begin(), bios.end(), 0);
 
     std::fill(ram.begin(), ram.end(), 0);
 
     std::fill(scratchpad.begin(), scratchpad.end(), 0);
+
+    std::fill(iop_ram.begin(), iop_ram.end(), 0);
 
     switch (mode)
     {

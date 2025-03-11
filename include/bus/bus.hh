@@ -14,6 +14,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <iop/iop_timer.hh>
 
 enum class BusMode
 {
@@ -32,6 +33,7 @@ class Bus
     std::vector<std::uint8_t> bios;
     std::vector<std::uint8_t> ram;
     std::vector<std::uint8_t> scratchpad;
+    std::vector<std::uint8_t> iop_ram;
 
     TLB tlb;
     uintptr_t *address_space_r;
@@ -43,6 +45,7 @@ class Bus
     GIF gif;
     GS gs;
     EE_Timer timers;
+    IOP_Timer iop_timers;
     EE_DMAC dmac;
     VIF vif;
     IPU ipu;
