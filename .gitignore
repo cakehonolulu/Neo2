@@ -16,3 +16,4 @@ build/*
 out/
 .vs/
 include/elf.h
+*.spv
