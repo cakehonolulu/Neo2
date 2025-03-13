@@ -14,6 +14,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <bus/rdram.hh>
 #include <iop/iop_timer.hh>
 
 enum class BusMode
@@ -49,6 +50,7 @@ class Bus
     EE_DMAC dmac;
     VIF vif;
     IPU ipu;
+    RDRAM rdram;
 
     std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB &tlb);
 

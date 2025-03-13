@@ -198,36 +198,20 @@ T io_read(Bus *bus, std::uint32_t address) {
         case 0x1000F400:
         case 0x1000F410:
         case 0x1000F420:
-        case 0x1000F430:
-            return static_cast<T>(0x0);
+            break;
 
+        case 0x1000F430:
         case 0x1000F440:
-        {
-            if constexpr (sizeof(T) == 4) {
-                uint8_t SOP = (MCH_RICM >> 6) & 0xF;
-                uint8_t SA = (MCH_RICM >> 16) & 0xFFF;
-                if (!SOP)
-                {
-                    switch (SA)
-                    {
-                    case 0x21:
-                        if (rdram_sdevid < 2)
-                        {
-                            rdram_sdevid++;
-                            return 0x1F;
-                        }
-                        return 0;
-                    case 0x23:
-                        return 0x0D0D;
-                    case 0x24:
-                        return 0x0090;
-                    case 0x40:
-                        return MCH_RICM & 0x1F;
-                    }
-                }
-                return 0;
+            if constexpr (sizeof(T) == 4)
+            {
+                return bus->rdram.read(address);
             }
-        }
+            else
+            {
+                Logger::error("Unhandled non-32-bit read to RDRAM registers");
+                Neo2::exit(1, Neo2::Subsystem::Bus);
+            }
+            break;
 
         case 0x1000F450:
         case 0x1000F460:
@@ -407,6 +391,19 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
         case 0x1000F420:
             break;
 
+        case 0x1000F430:
+        case 0x1000F440:
+            if constexpr (sizeof(T) == 4)
+            {
+                bus->rdram.write(address, value);
+            }
+            else
+            {
+                Logger::error("Unhandled non-32-bit write to RDRAM registers");
+                Neo2::exit(1, Neo2::Subsystem::Bus);
+            }
+            break;
+
         case 0x1000F200:
             if constexpr (sizeof(T) == 4) {
                 sbus_maddr = value;
@@ -433,25 +430,6 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
 
         case 0x1000F240:
         case 0x1000F260:
-            break;
-
-        case 0x1000F430:
-        {
-            if constexpr (sizeof(T) == 4) {
-                uint8_t SA = (value >> 16) & 0xFFF;
-                uint8_t SBC = (value >> 6) & 0xF;
-
-                if (SA == 0x21 && SBC == 0x1 && ((MCH_DRD >> 7) & 1) == 0) rdram_sdevid = 0;
-
-                MCH_RICM = value & ~0x80000000;
-            }
-            break;
-        }
-
-        case 0x1000F440:
-            if constexpr (sizeof(T) == 4) {
-                MCH_DRD = value;
-            }
             break;
 
         case 0x1000F450:
