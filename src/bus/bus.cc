@@ -16,7 +16,7 @@ using fmt::format;
 #endif
 
 Bus::Bus(BusMode mode)
-    : tlb(32), sio(), ee_intc(), gif(*this), gs(), timers(), iop_timers(), vif(), ipu(), dmac(*this), rdram() // Pass reference to Bus instance
+    : tlb(48), sio(), ee_intc(), gif(*this), gs(), timers(), iop_timers(), vif(), ipu(), dmac(*this), rdram() // Pass reference to Bus instance
 {
     Logger::set_subsystem("BUS");
 
