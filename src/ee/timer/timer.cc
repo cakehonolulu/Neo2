@@ -29,12 +29,15 @@ uint32_t EE_Timer::read(uint32_t address) {
 
     switch (address & 0xFFF) {
         case 0x000:
-            reg_name = format("TN_COUNT[{}]", timer_index);
-            Logger::info("Timer register read from " + reg_name);
             if (timer_index == 0)
             {
                 timer0 += 1;
                 return timer0 >> 11;
+            }
+            else
+            {
+                reg_name = format("TN_COUNT[{}]", timer_index);
+                Logger::info("Timer register read from " + reg_name);
             }
             return timers[timer_index].count;
 
