@@ -17,3 +17,6 @@ out/
 .vs/
 include/elf.h
 *.spv
+shaders/*.spv
+shaders/*.dxbc
+shaders/*.dxil

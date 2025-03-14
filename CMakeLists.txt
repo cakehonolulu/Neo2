@@ -27,7 +27,85 @@ find_package(LLVM REQUIRED CONFIG)
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
+# Define custom commands to compile HLSL shaders to DXIL, DXBC, and SPIRV formats
+set(SHADER_DIR ${CMAKE_SOURCE_DIR}/shaders)
+set(COMPILED_SHADER_DIR ${CMAKE_SOURCE_DIR}/shaders)
+
+file(MAKE_DIRECTORY ${COMPILED_SHADER_DIR})
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/vertexShader.dxil
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling vertexShader.hlsl to DXIL"
+    COMMAND shadercross ${SHADER_DIR}/vertexShader.hlsl -o ${COMPILED_SHADER_DIR}/vertexShader.dxil -t vertex -d DXIL
+    DEPENDS ${SHADER_DIR}/vertexShader.hlsl
+    COMMENT "Compiling vertexShader.hlsl to DXIL"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/fragmentShader.dxil
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling fragmentShader.hlsl to DXIL"
+    COMMAND shadercross ${SHADER_DIR}/fragmentShader.hlsl -o ${COMPILED_SHADER_DIR}/fragmentShader.dxil -t fragment -d DXIL
+    DEPENDS ${SHADER_DIR}/fragmentShader.hlsl
+    COMMENT "Compiling fragmentShader.hlsl to DXIL"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/vertexShader.dxbc
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling vertexShader.hlsl to DXBC"
+    COMMAND shadercross ${SHADER_DIR}/vertexShader.hlsl -o ${COMPILED_SHADER_DIR}/vertexShader.dxbc -t vertex -d DXBC
+    DEPENDS ${SHADER_DIR}/vertexShader.hlsl
+    COMMENT "Compiling vertexShader.hlsl to DXBC"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/fragmentShader.dxbc
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling fragmentShader.hlsl to DXBC"
+    COMMAND shadercross ${SHADER_DIR}/fragmentShader.hlsl -o ${COMPILED_SHADER_DIR}/fragmentShader.dxbc -t fragment -d DXBC
+    DEPENDS ${SHADER_DIR}/fragmentShader.hlsl
+    COMMENT "Compiling fragmentShader.hlsl to DXBC"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/vertexShader.spv
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling vertexShader.hlsl to SPIRV"
+    COMMAND shadercross ${SHADER_DIR}/vertexShader.hlsl -o ${COMPILED_SHADER_DIR}/vertexShader.spv -t vertex -d SPIRV
+    DEPENDS ${SHADER_DIR}/vertexShader.hlsl
+    COMMENT "Compiling vertexShader.hlsl to SPIRV"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COMPILED_SHADER_DIR}/fragmentShader.spv
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${COMPILED_SHADER_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling fragmentShader.hlsl to SPIRV"
+    COMMAND shadercross ${SHADER_DIR}/fragmentShader.hlsl -o ${COMPILED_SHADER_DIR}/fragmentShader.spv -t fragment -d SPIRV
+    DEPENDS ${SHADER_DIR}/fragmentShader.hlsl
+    COMMENT "Compiling fragmentShader.hlsl to SPIRV"
+    VERBATIM
+)
+
+add_custom_target(
+    compile_shaders
+    DEPENDS ${COMPILED_SHADER_DIR}/vertexShader.dxil
+            ${COMPILED_SHADER_DIR}/fragmentShader.dxil
+            ${COMPILED_SHADER_DIR}/vertexShader.dxbc
+            ${COMPILED_SHADER_DIR}/fragmentShader.dxbc
+            ${COMPILED_SHADER_DIR}/vertexShader.spv
+            ${COMPILED_SHADER_DIR}/fragmentShader.spv
+)
+
 add_executable(neo2)
+
+add_dependencies(neo2 compile_shaders)
 
 add_subdirectory(src)
 

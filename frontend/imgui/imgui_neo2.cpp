@@ -165,7 +165,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         return;
     }
     SDL_GPUDevice *gpu_device = SDL_CreateGPUDevice(
-        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB, true, nullptr);
+        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB, false, nullptr);
     if (gpu_device == nullptr)
     {
         printf("Error: SDL_CreateGPUDevice(): %s\n", SDL_GetError());
@@ -317,9 +317,9 @@ void ImGui_Neo2::run(int argc, char **argv)
         frame_ended = true;
     });
 
-    // Compile shaders (using your helper function or your own method)
-    SDL_GPUShader *vertexShader = LoadCompiledShader(gpu_device, "vertexShader.spv", SDL_GPU_SHADERSTAGE_VERTEX);
-    SDL_GPUShader *fragmentShader = LoadCompiledShader(gpu_device, "fragmentShader.spv", SDL_GPU_SHADERSTAGE_FRAGMENT);
+    // Compile shaders using the embedded shaders
+    SDL_GPUShader *vertexShader = LoadCompiledShader(gpu_device, SDL_GPU_SHADERSTAGE_VERTEX);
+    SDL_GPUShader *fragmentShader = LoadCompiledShader(gpu_device, SDL_GPU_SHADERSTAGE_FRAGMENT);
 
     // Create the graphics pipeline using the compiled shaders.
     hw_pipeline = CreatePipeline(gpu_device, window, vertexShader, fragmentShader);

@@ -5,6 +5,30 @@
 #include <SDL3/SDL.h>
 #include <log/log.hh>
 
+const unsigned char fragmentShaderSPIRV[] = {
+#embed "../../shaders/fragmentShader.spv"
+};
+
+const unsigned char vertexShaderSPIRV[] = {
+#embed "../../shaders/vertexShader.spv"
+};
+
+const unsigned char fragmentShaderDXBC[] = {
+#embed "../../shaders/fragmentShader.dxbc"
+};
+
+const unsigned char vertexShaderDXBC[] = {
+#embed "../../shaders/vertexShader.dxbc"
+};
+
+const unsigned char fragmentShaderDXIL[] = {
+#embed "../../shaders/fragmentShader.dxil"
+};
+
+const unsigned char vertexShaderDXIL[] = {
+#embed "../../shaders/vertexShader.dxil"
+};
+
 SDLGPURenderer::SDLGPURenderer(float width, float height)
 {
 }
@@ -27,28 +51,18 @@ void SDLGPURenderer::RenderHWToEmuTexture(const std::vector<Vertex> &vertex_buff
 {
 }
 
-
 SDLGPURenderer::~SDLGPURenderer()
 {
 }
 
-
-SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, const char *filePath, SDL_GPUShaderStage stage)
+SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, SDL_GPUShaderStage stage)
 {
+    const Uint8 *code = nullptr;
     size_t codeSize = 0;
-    void *code = SDL_LoadFile(filePath, &codeSize);
-    if (!code)
-    {
-        printf("LoadCompiledShader: Failed to load shader file '%s': %s\n", filePath, SDL_GetError());
-        return nullptr;
-    }
-
     SDL_GPUShaderFormat backendFormats = SDL_GetGPUShaderFormats(gpu_device);
 
     SDL_GPUShaderCreateInfo shaderInfo;
     SDL_zero(shaderInfo);
-    shaderInfo.code = reinterpret_cast<const Uint8 *>(code);
-    shaderInfo.code_size = codeSize;
     shaderInfo.entrypoint = "main";
     shaderInfo.stage = stage;
     shaderInfo.num_samplers = 0;
@@ -57,16 +71,46 @@ SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, const char *filePat
     if (backendFormats & SDL_GPU_SHADERFORMAT_SPIRV)
     {
         printf("SPIRV Shader\n");
+        if (stage == SDL_GPU_SHADERSTAGE_VERTEX)
+        {
+            code = vertexShaderSPIRV;
+            codeSize = sizeof(vertexShaderSPIRV);
+        }
+        else if (stage == SDL_GPU_SHADERSTAGE_FRAGMENT)
+        {
+            code = fragmentShaderSPIRV;
+            codeSize = sizeof(fragmentShaderSPIRV);
+        }
         shaderInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
     }
     else if (backendFormats & SDL_GPU_SHADERFORMAT_DXBC)
     {
         printf("DXBC Shader\n");
+        if (stage == SDL_GPU_SHADERSTAGE_VERTEX)
+        {
+            code = vertexShaderDXBC;
+            codeSize = sizeof(vertexShaderDXBC);
+        }
+        else if (stage == SDL_GPU_SHADERSTAGE_FRAGMENT)
+        {
+            code = fragmentShaderDXBC;
+            codeSize = sizeof(fragmentShaderDXBC);
+        }
         shaderInfo.format = SDL_GPU_SHADERFORMAT_DXBC;
     }
     else if (backendFormats & SDL_GPU_SHADERFORMAT_DXIL)
     {
         printf("DXIL Shader\n");
+        if (stage == SDL_GPU_SHADERSTAGE_VERTEX)
+        {
+            code = vertexShaderDXIL;
+            codeSize = sizeof(vertexShaderDXIL);
+        }
+        else if (stage == SDL_GPU_SHADERSTAGE_FRAGMENT)
+        {
+            code = fragmentShaderDXIL;
+            codeSize = sizeof(fragmentShaderDXIL);
+        }
         shaderInfo.format = SDL_GPU_SHADERFORMAT_DXIL;
     }
     else
@@ -75,15 +119,15 @@ SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, const char *filePat
         return NULL;
     }
 
+    shaderInfo.code = code;
+    shaderInfo.code_size = codeSize;
+
     // Create the shader.
     SDL_GPUShader *shader = SDL_CreateGPUShader(gpu_device, &shaderInfo);
     if (!shader)
     {
-        printf("LoadCompiledShader: Failed to create shader from file '%s': %s\n", filePath, SDL_GetError());
+        printf("LoadCompiledShader: Failed to create shader: %s\n", SDL_GetError());
     }
-
-    // Free the loaded shader code since SDL_CreateGPUShader copies it.
-    SDL_free(code);
     return shader;
 }
 

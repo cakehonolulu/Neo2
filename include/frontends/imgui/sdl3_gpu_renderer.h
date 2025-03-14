@@ -4,7 +4,7 @@
 #include <SDL3/SDL_gpu.h>
 #include <vertex.hh>
 
-SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, const char *filePath, SDL_GPUShaderStage stage);
+SDL_GPUShader *LoadCompiledShader(SDL_GPUDevice *gpu_device, SDL_GPUShaderStage stage);
 SDL_GPUShader *CompileShader(SDL_GPUDevice *gpu_device, const char *source, SDL_GPUShaderStage stage);
 SDL_GPUGraphicsPipeline *CreatePipeline(SDL_GPUDevice *gpu_device, SDL_Window *window, SDL_GPUShader *vertexShader,
                                         SDL_GPUShader *fragmentShader);
