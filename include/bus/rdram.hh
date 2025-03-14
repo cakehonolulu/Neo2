@@ -11,9 +11,10 @@ class RDRAM
 {
   public:
     // Constants for register addresses
-    static constexpr uint32_t MCH_DRD = 0x1000F430;
-    static constexpr uint32_t MCH_RICM = 0x1000F440;
+    static constexpr uint32_t MCH_RICM = 0x1000F430;
+    static constexpr uint32_t MCH_DRD = 0x1000F440;
 
+    // RDRAM Initialization Control Register
     union {
         uint32_t value; // Full 32-bit register value
         struct
@@ -27,16 +28,17 @@ class RDRAM
             uint32_t reserved2  : 3;    // Bits 28-30: Reserved
             uint32_t busy       : 1;    // Bit     31: Busy
         };
-    } mch_drd_ = {0};
+    } mch_ricm_ = {0};
     
-    uint32_t mch_ricm_ = 0x0;
+    // RDRAM Device Register Data Register
+    uint32_t mch_drd_ = 0x0;
 
     // INIT Control Register (R/W)
     union {
         uint16_t value; // Full 14-bit register value
         struct
         {
-            /* Serial Device ID, Device address forcontrol register read/write */
+            /* Serial Device ID, Device address for control register read/write */
             uint32_t sdevid : 6;    // Bits   0-5: SDEVID[0:5]
             /* Power Select exit. PDN/NAP exit with device address on DQA5...O. */
             uint32_t psx    : 1;    // Bit      6: PSX

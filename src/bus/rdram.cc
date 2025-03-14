@@ -12,39 +12,39 @@ uint32_t RDRAM::read(uint32_t address)
     std::string reg_name;
     switch (address)
     {
-        case MCH_DRD:
-            reg_name = "MCH_DRD";
-            break;
         case MCH_RICM:
             reg_name = "MCH_RICM";
+            break;
+        case MCH_DRD:
+            reg_name = "MCH_DRD";
             break;
         default:
             Logger::error("Invalid RDRAM register read at address 0x" + format("{:08X}", address));
             Neo2::exit(1, Neo2::Subsystem::RDRAM);
     }
     Logger::info("RDRAM register read from " + reg_name);
-    return (address == MCH_DRD) ? mch_drd_.value : mch_ricm_;
+    return (address == MCH_RICM) ? mch_ricm_.value : mch_drd_;
 }
 
 void RDRAM::write(uint32_t address, uint32_t value)
 {
-    mch_drd_.busy = 1;
+    mch_ricm_.busy = 1;
 
     std::string reg_name;
     switch (address)
     {
-    case MCH_DRD:
-        reg_name = "MCH_DRD";
-        mch_drd_.value = value;
-        cmd();
-        break;
-    case MCH_RICM:
-        reg_name = "MCH_RICM";
-        mch_ricm_ = value;
-        break;
-    default:
-        Logger::error("Invalid RDRAM register write at address 0x" + format("{:08X}", address));
-        Neo2::exit(1, Neo2::Subsystem::RDRAM);
+        case MCH_RICM:
+            reg_name = "MCH_RICM";
+            mch_ricm_.value = value;
+            cmd();
+            break;
+        case MCH_DRD:
+            reg_name = "MCH_DRD";
+            mch_drd_ = value;
+            break;
+        default:
+            Logger::error("Invalid RDRAM register write at address 0x" + format("{:08X}", address));
+            Neo2::exit(1, Neo2::Subsystem::RDRAM);
     }
 
     Logger::info("RDRAM register write to " + reg_name + " with value 0x" + format("{:08X}", value));
@@ -52,7 +52,7 @@ void RDRAM::write(uint32_t address, uint32_t value)
 
 void RDRAM::cmd()
 {
-    uint32_t sop = mch_drd_.sop;
+    uint32_t sop = mch_ricm_.sop;
     switch (sop)
     {
         case RDRAMCommand::SWR:
@@ -75,13 +75,22 @@ void RDRAM::cmd()
             break;
     }
 
-    mch_drd_.busy = 0;
+    mch_ricm_.busy = 0;
 }
 
 void RDRAM::swr()
 {
     /* Serial write of control register (SA11..SA0) of RDRAM (SDEV5..SDEV0). */
+
+    switch ((mch_ricm_.value >> 16) & 0xFFF)
+    {
+        default:
+            Logger::error("Unhandled RDRAM SWR register: 0x" + format("{:04X}", (mch_ricm_.value >> 16) & 0xFFF));
+            Neo2::exit(1, Neo2::Subsystem::RDRAM);
+            break;
+    }
 }
+
 
 void RDRAM::setr()
 {
