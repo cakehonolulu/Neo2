@@ -1,11 +1,19 @@
 #pragma once
 #include <cstdint>
 
-typedef enum RDRAMCommand
+typedef enum
 {
+    SRD     = 0b0000,
     SWR     = 0b0001,
     SETR    = 0b0010
 } RDRAMCommand;
+
+typedef enum
+{
+    INIT    = 0x021,
+    TCYCLE  = 0x04C,
+    TEST77  = 0x04D
+} RDRAMRegister;
 
 class RDRAM
 {
@@ -213,6 +221,7 @@ class RDRAM
     uint32_t read(uint32_t address);
     void write(uint32_t address, uint32_t value);
     void cmd();
+    void srd();
     void swr();
     void setr();
 };

@@ -55,6 +55,11 @@ void RDRAM::cmd()
     uint32_t sop = mch_ricm_.sop;
     switch (sop)
     {
+        case RDRAMCommand::SRD:
+            Logger::info("RDRAM controller SDR command");
+            srd();
+            break;
+
         case RDRAMCommand::SWR:
             Logger::info("RDRAM controller SWR command");
             swr();
@@ -78,19 +83,49 @@ void RDRAM::cmd()
     mch_ricm_.busy = 0;
 }
 
+void RDRAM::srd()
+{
+    /* Serial read of control register {SA11..SA0) of RDRAM (SDEV5..SDEV0). */
+    switch ((mch_ricm_.value >> 16) & 0xFFF)
+    {
+        case RDRAMRegister::INIT:
+            mch_drd_ = init.value;
+            Logger::info("RDRAM SRD register read from INIT");
+            break;
+
+        default:
+            Logger::error("Unhandled RDRAM SRD register: 0x" + format("{:04X}", (mch_ricm_.value >> 16) & 0xFFF));
+            Neo2::exit(1, Neo2::Subsystem::RDRAM);
+            break;
+    }
+}
+
 void RDRAM::swr()
 {
     /* Serial write of control register (SA11..SA0) of RDRAM (SDEV5..SDEV0). */
-
     switch ((mch_ricm_.value >> 16) & 0xFFF)
     {
+        case RDRAMRegister::INIT:
+            init.value = mch_drd_ & 0xE;
+            Logger::info("RDRAM SWR register write to INIT");
+            break;
+            
+        case RDRAMRegister::TCYCLE:
+            tcycle = mch_drd_ & 0x3F;
+            Logger::info("RDRAM SWR register write to TCYCLE");
+            break;
+            
+        case RDRAMRegister::TEST77:
+            test77 = mch_drd_ & 0xFFFF;
+            Logger::info("RDRAM SWR register write to TEST77");
+            break;
+
         default:
             Logger::error("Unhandled RDRAM SWR register: 0x" + format("{:04X}", (mch_ricm_.value >> 16) & 0xFFF));
             Neo2::exit(1, Neo2::Subsystem::RDRAM);
             break;
     }
 }
-
 
 void RDRAM::setr()
 {
