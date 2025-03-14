@@ -106,7 +106,7 @@ void RDRAM::swr()
     switch ((mch_ricm_.value >> 16) & 0xFFF)
     {
         case RDRAMRegister::INIT:
-            init.value = mch_drd_ & 0xE;
+            init.value = mch_drd_ & 0x1FFF;
             Logger::info("RDRAM SWR register write to INIT");
             break;
             
