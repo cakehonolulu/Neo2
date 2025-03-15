@@ -15,32 +15,8 @@ typedef enum
     TEST77  = 0x04D
 } RDRAMRegister;
 
-class RDRAM
+struct RDRAM_IC
 {
-  public:
-    // Constants for register addresses
-    static constexpr uint32_t MCH_RICM = 0x1000F430;
-    static constexpr uint32_t MCH_DRD = 0x1000F440;
-
-    // RDRAM Initialization Control Register
-    union {
-        uint32_t value; // Full 32-bit register value
-        struct
-        {
-            uint32_t sdev_low   : 5;    // Bits   0-4: SDEV[0:4]
-            uint32_t sbc        : 1;    // Bit      5: SBC (broadcast flag)
-            uint32_t sop        : 4;    // Bits   6-9: SOP (serial opcode)
-            uint32_t sdev_high  : 1;    // Bit     10: SDEV[5]
-            uint32_t reserved1  : 5;    // Bits 11-15: Reserved
-            uint32_t sa         : 12;   // Bits 16-27: SA (serial address)
-            uint32_t reserved2  : 3;    // Bits 28-30: Reserved
-            uint32_t busy       : 1;    // Bit     31: Busy
-        };
-    } mch_ricm_ = {0};
-    
-    // RDRAM Device Register Data Register
-    uint32_t mch_drd_ = 0x0;
-
     // INIT Control Register (R/W)
     union {
         uint16_t value; // Full 14-bit register value
@@ -214,6 +190,45 @@ class RDRAM
 
     /* Test register. Do not read or write after SIO reset. */
     uint16_t test79 = 0x0;
+};
+
+class RDRAM
+{
+  public:
+    // Constants for register addresses
+    static constexpr uint32_t MCH_RICM = 0x1000F430;
+    static constexpr uint32_t MCH_DRD = 0x1000F440;
+
+    // RDRAM Initialization Control Register
+    union {
+        uint32_t value; // Full 32-bit register value
+        struct
+        {
+            uint32_t sdev_low   : 5;    // Bits   0-4: SDEV[0:4]
+            uint32_t sbc        : 1;    // Bit      5: SBC (broadcast flag)
+            uint32_t sop        : 4;    // Bits   6-9: SOP (serial opcode)
+            uint32_t sdev_high  : 1;    // Bit     10: SDEV[5]
+            uint32_t reserved1  : 5;    // Bits 11-15: Reserved
+            uint32_t sa         : 12;   // Bits 16-27: SA (serial address)
+            uint32_t reserved2  : 3;    // Bits 28-30: Reserved
+            uint32_t busy       : 1;    // Bit     31: Busy
+        };
+    } mch_ricm_ = {0};
+    
+    // RDRAM Device Register Data Register
+    uint32_t mch_drd_ = 0x0;
+
+    /*
+    * Apparently all PS2's came generally with 2 RDRAM ICs.
+    * Let's honour that.
+    * 
+    * https://www.psdevwiki.com/ps2/Rambus_DRAM
+    * 
+    * TODO: Search how many RDRAM ICs exist on DESRs and,
+    * whenever we have a BIOS ident. system with hashes,
+    * change the number of RDRAM ICs accordingly.
+    */
+    RDRAM_IC rdram_ic[2];
 
     RDRAM();
 

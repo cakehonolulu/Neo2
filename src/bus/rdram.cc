@@ -89,9 +89,25 @@ void RDRAM::srd()
     switch ((mch_ricm_.value >> 16) & 0xFFF)
     {
         case RDRAMRegister::INIT:
-            mch_drd_ = init.value;
-            Logger::info("RDRAM SRD register read from INIT");
+        {
+            bool found_ic = false;
+            for (auto &ic : rdram_ic)
+            {
+                if (ic.init.sdevid == (((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)))
+                {
+                    mch_drd_ = ic.init.value;
+                    found_ic = true;
+                    Logger::info("RDRAM SRD register read from INIT");
+                }
+            }
+
+            if (!found_ic)
+            {
+                Logger::error("RDRAM SRD register read from INIT failed");
+                Neo2::exit(1, Neo2::Subsystem::RDRAM);
+            }
             break;
+        }
 
         default:
             Logger::error("Unhandled RDRAM SRD register: 0x" + format("{:04X}", (mch_ricm_.value >> 16) & 0xFFF));
@@ -106,17 +122,47 @@ void RDRAM::swr()
     switch ((mch_ricm_.value >> 16) & 0xFFF)
     {
         case RDRAMRegister::INIT:
-            init.value = mch_drd_ & 0x1FFF;
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.init.value = mch_drd_ & 0x3FFF;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].init.value = mch_drd_ & 0x1FFF;
+            }
             Logger::info("RDRAM SWR register write to INIT");
             break;
             
         case RDRAMRegister::TCYCLE:
-            tcycle = mch_drd_ & 0x3F;
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.tcycle = mch_drd_ & 0x3F;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tcycle = mch_drd_ & 0x3F;
+            }
             Logger::info("RDRAM SWR register write to TCYCLE");
             break;
             
         case RDRAMRegister::TEST77:
-            test77 = mch_drd_ & 0xFFFF;
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.test77 = mch_drd_ & 0xFFFF;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].test77 = mch_drd_ & 0xFFFF;
+            }
             Logger::info("RDRAM SWR register write to TEST77");
             break;
 
@@ -133,24 +179,56 @@ void RDRAM::setr()
         Set Reset bit; all control registers assume their reset values.
         a16 tSCYCLE delay until CLRR command.
     */
-    init.value = 0;
-    test34 = 0;
-    cnfga.value = 0;
-    cnfgb.value = 0;
-    devid = 0;
-    refb = 0;
-    refr = 0;
-    cca.value = 0;
-    ccb.value = 0;
-    napx.value = 0;
-    pdnxa = 0;
-    pdnx = 0;
-    tparm.value = 0;
-    tfrm = 0;
-    tcdly1 = 0;
-    tcycle = 0;
-    skip.value = 0;
-    test77 = 0;
-    test78 = 0;
-    test79 = 0;
+
+    if (mch_ricm_.sbc)
+    {
+        for (auto &ic : rdram_ic)
+        {
+            ic.init.value = 0;
+            ic.test34 = 0;
+            ic.cnfga.value = 0;
+            ic.cnfgb.value = 0;
+            ic.devid = 0;
+            ic.refb = 0;
+            ic.refr = 0;
+            ic.cca.value = 0;
+            ic.ccb.value = 0;
+            ic.napx.value = 0;
+            ic.pdnxa = 0;
+            ic.pdnx = 0;
+            ic.tparm.value = 0;
+            ic.tfrm = 0;
+            ic.tcdly1 = 0;
+            ic.tcycle = 0;
+            ic.skip.value = 0;
+            ic.test77 = 0;
+            ic.test78 = 0;
+            ic.test79 = 0;
+        }
+    }
+    else
+    {
+        auto &ic = rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)];
+
+        ic.init.value = 0;
+        ic.test34 = 0;
+        ic.cnfga.value = 0;
+        ic.cnfgb.value = 0;
+        ic.devid = 0;
+        ic.refb = 0;
+        ic.refr = 0;
+        ic.cca.value = 0;
+        ic.ccb.value = 0;
+        ic.napx.value = 0;
+        ic.pdnxa = 0;
+        ic.pdnx = 0;
+        ic.tparm.value = 0;
+        ic.tfrm = 0;
+        ic.tcdly1 = 0;
+        ic.tcycle = 0;
+        ic.skip.value = 0;
+        ic.test77 = 0;
+        ic.test78 = 0;
+        ic.test79 = 0;
+    } 
 }
