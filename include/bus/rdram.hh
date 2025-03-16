@@ -5,12 +5,21 @@ typedef enum
 {
     SRD     = 0b0000,
     SWR     = 0b0001,
-    SETR    = 0b0010
+    SETR    = 0b0010,
+    SETF    = 0b0100,
+    CLRR    = 0b1011
 } RDRAMCommand;
 
 typedef enum
 {
     INIT    = 0x021,
+    NAPX    = 0x045,
+    PDNXA   = 0x046,
+    PDNX    = 0x047,
+    TPARM   = 0x048,
+    TFRM    = 0x049,
+    TCDLY1  = 0x04A,
+    SKIP    = 0x04B,
     TCYCLE  = 0x04C,
     TEST77  = 0x04D
 } RDRAMRegister;

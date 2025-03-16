@@ -70,6 +70,14 @@ void RDRAM::cmd()
             setr();
             break;
 
+        case RDRAMCommand::SETF:
+            Logger::info("RDRAM controller SETF command");
+            break;
+
+        case RDRAMCommand::CLRR:
+            Logger::info("RDRAM controller CLRR command");
+            break;
+
         case 0b1110:
             Logger::info("RDRAM controller RSRV command");
             break;
@@ -104,6 +112,12 @@ void RDRAM::srd()
             if (!found_ic)
             {
                 Logger::error("RDRAM SRD register read from INIT failed");
+                printf("Tried to find SDEVID: %04X\n", (((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)));
+                printf("Available sdevid's:\n");
+                for (auto &ic : rdram_ic)
+                {
+                    printf("%04X\n", ic.init.sdevid);
+                }
                 Neo2::exit(1, Neo2::Subsystem::RDRAM);
             }
             break;
@@ -131,11 +145,122 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].init.value = mch_drd_ & 0x1FFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.init.value = mch_drd_ & 0x3FFF;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to INIT");
             break;
-            
+
+        case RDRAMRegister::NAPX:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.napx.value = mch_drd_ & 0x7FF;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].napx.value = mch_drd_ & 0x7FF;
+            }
+            Logger::info("RDRAM SWR register write to NAPX");
+            break;
+
+        case RDRAMRegister::PDNXA:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.pdnxa = mch_drd_ & 0x3F;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].pdnxa = mch_drd_ & 0x3F;
+            }
+            Logger::info("RDRAM SWR register write to PDNXA");
+            break;
+
+        case RDRAMRegister::PDNX:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.pdnx = mch_drd_ & 0x7;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].pdnx = mch_drd_ & 0x7;
+            }
+            Logger::info("RDRAM SWR register write to PDNX");
+            break;
+
+        case RDRAMRegister::TPARM:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.tparm.value = mch_drd_ & 0x7F;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tparm.value = mch_drd_ & 0x7F;
+            }
+            Logger::info("RDRAM SWR register write to TPARM");
+            break;
+
+        case RDRAMRegister::TFRM:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.tfrm = mch_drd_ & 0xF;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tfrm = mch_drd_ & 0xF;
+            }
+            Logger::info("RDRAM SWR register write to TFRM");
+            break;
+
+        case RDRAMRegister::TCDLY1:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.tcdly1 = mch_drd_ & 0x3;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tcdly1 = mch_drd_ & 0x3;
+            }
+            Logger::info("RDRAM SWR register write to TCDLY1");
+            break;
+
+        case RDRAMRegister::SKIP:
+            if (mch_ricm_.sbc)
+            {
+                for (auto &ic : rdram_ic)
+                {
+                    ic.skip.value = mch_drd_ & 0x7;
+                }
+            }
+            else
+            {
+                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].skip.value = mch_drd_ & 0x7;
+            }
+            Logger::info("RDRAM SWR register write to SKIP");
+            break;
+
         case RDRAMRegister::TCYCLE:
             if (mch_ricm_.sbc)
             {
