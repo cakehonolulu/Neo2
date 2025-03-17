@@ -98,6 +98,8 @@ void RDRAM::srd()
     {
         case RDRAMRegister::INIT:
         {
+            mch_drd_ = 0;
+
             bool found_ic = false;
             for (auto &ic : rdram_ic)
             {
@@ -106,19 +108,13 @@ void RDRAM::srd()
                     mch_drd_ = ic.init.value;
                     found_ic = true;
                     Logger::info("RDRAM SRD register read from INIT");
+                    return;
                 }
             }
 
             if (!found_ic)
             {
-                Logger::error("RDRAM SRD register read from INIT failed");
-                printf("Tried to find SDEVID: %04X\n", (((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)));
-                printf("Available sdevid's:\n");
-                for (auto &ic : rdram_ic)
-                {
-                    printf("%04X\n", ic.init.sdevid);
-                }
-                Neo2::exit(1, Neo2::Subsystem::RDRAM);
+                Logger::debug("RDRAM SRD register read didn't find device");
             }
             break;
         }
@@ -150,6 +146,7 @@ void RDRAM::swr()
                     if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
                     {
                         ic.init.value = mch_drd_ & 0x3FFF;
+                        return;
                     }
                 }
             }
