@@ -13,7 +13,11 @@ typedef enum
 typedef enum
 {
     INIT    = 0x021,
+    TEST34  = 0x022,
     NAPX    = 0x045,
+    DEVID   = 0x040,
+    CCA     = 0x043,
+    CCB     = 0x044,
     PDNXA   = 0x046,
     PDNX    = 0x047,
     TPARM   = 0x048,
@@ -21,7 +25,8 @@ typedef enum
     TCDLY1  = 0x04A,
     SKIP    = 0x04B,
     TCYCLE  = 0x04C,
-    TEST77  = 0x04D
+    TEST77  = 0x04D,
+    TEST78  = 0x04E
 } RDRAMRegister;
 
 struct RDRAM_IC
