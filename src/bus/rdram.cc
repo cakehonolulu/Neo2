@@ -119,6 +119,29 @@ void RDRAM::srd()
             break;
         }
 
+        case RDRAMRegister::DEVID:
+        {
+            mch_drd_ = 0;
+
+            bool found_ic = false;
+            for (auto &ic : rdram_ic)
+            {
+                if (ic.init.sdevid == (((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)))
+                {
+                    mch_drd_ = ic.devid & 0x1F;
+                    found_ic = true;
+                    Logger::info("RDRAM SRD register read from DEVID");
+                    return;
+                }
+            }
+
+            if (!found_ic)
+            {
+                Logger::debug("RDRAM SRD register read didn't find device");
+            }
+            break;
+        }
+
         default:
             Logger::error("Unhandled RDRAM SRD register: 0x" + format("{:04X}", (mch_ricm_.value >> 16) & 0xFFF));
             Neo2::exit(1, Neo2::Subsystem::RDRAM);
