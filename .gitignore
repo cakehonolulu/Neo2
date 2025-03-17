@@ -1,5 +1,5 @@
 neo2
-cmake_install.cmake
+*.cmake
 *.bin
 Makefile
 CMakeCache.txt
