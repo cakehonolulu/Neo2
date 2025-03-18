@@ -28,12 +28,6 @@ public:
     uint32_t read_register(uint32_t address);
     void dma_step();
 
-private:
-    Bus& bus; // Reference to the Bus instance
-
-    // Map of base addresses to channel name and DMAC_Channel
-    std::unordered_map<uint32_t, std::pair<std::string, DMAC_Channel>> channels;
-
     uint32_t D_CTRL = 0;    // DMAC control
     uint32_t D_STAT = 0;    // DMAC interrupt status
     uint32_t D_PCR = 0;     // DMAC priority control
@@ -43,6 +37,12 @@ private:
     uint32_t D_STADR = 0;   // DMAC stall address
     uint32_t D_ENABLER = 0; // DMAC disabled status
     uint32_t D_ENABLEW = 0; // DMAC disable
+
+private:
+    Bus& bus; // Reference to the Bus instance
+
+    // Map of base addresses to channel name and DMAC_Channel
+    std::unordered_map<uint32_t, std::pair<std::string, DMAC_Channel>> channels;
 
     static constexpr uint32_t CHCR_STR_BIT = 0x100; // Start bit for CHCR
     static constexpr uint32_t CHCR_ASR_BIT = 0x10;  // Address stack register select bit

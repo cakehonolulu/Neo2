@@ -3,6 +3,7 @@
   "dependencies": [
     "glew",
     "llvm",
-    "sdl3"
+    "sdl3",
+    "openssl"
   ]
 }

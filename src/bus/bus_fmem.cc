@@ -55,37 +55,6 @@ void Bus::fmem_init() {
     entry.entry_lo1 = 0x00400000 >> 12; // For next 4MB page
     entry.global = true;
     tlb.write_entry_(2, entry);
-
-    // PS2's Address Space is 4GB, divided into 4KB pages
-    address_space_r = new uintptr_t[0x100000];  // Readable memory pages (4KB * 1024 * 1024 = 4GB)
-    address_space_w = new uintptr_t[0x100000];  // Writable memory pages
-
-    memset(address_space_r, 0, sizeof(uintptr_t) * 0x100000);
-    memset(address_space_w, 0, sizeof(uintptr_t) * 0x100000);
-
-    // Map BIOS pages into KUSEG, KSEG0, and KSEG1 (uncached and cached)    
-    for (auto pageIndex = 0; pageIndex < 1024; pageIndex++) {
-        const auto pointer = (uintptr_t)&bios[(pageIndex * PAGE_SIZE)]; // pointer to page #pageIndex of the BIOS
-        // Map BIOS to KUSEG, KSEG0, KSEG1
-        address_space_r[pageIndex + 0x1FC00] = pointer;  // KUSEG BIOS
-        address_space_r[pageIndex + 0x9FC00] = pointer;  // KSEG0 BIOS (cached)
-        address_space_r[pageIndex + 0xBFC00] = pointer;  // KSEG1 BIOS (uncached)
-    }
-
-    // Main RAM: 32 MB starting at physical address 0x00000000
-    for (auto pageIndex = 0; pageIndex < 0x8000; pageIndex++) {  // 32 MB / 4KB per page = 0x8000 pages
-        const auto pointer = (uintptr_t)&ram[(pageIndex * PAGE_SIZE)];  // Main RAM pointer
-        address_space_r[pageIndex] = pointer;  // Map to KUSEG main RAM
-        address_space_w[pageIndex] = pointer;  // Map to KSEG0/KSEG1 main RAM (can write to it)
-    }
-
-    // IOP RAM: 2 MB starting at physical address 0x1C000000
-    for (auto pageIndex = 0; pageIndex < 0x200; pageIndex++)
-    {                                                                  // 2 MB / 4KB per page = 0x200 pages
-        const auto pointer = (uintptr_t)&iop_ram[(pageIndex * PAGE_SIZE)];  // IOP RAM pointer
-        address_space_r[pageIndex + 0x1C000] = pointer;  // Map to IOP RAM
-        address_space_w[pageIndex + 0x1C000] = pointer;  // Map to IOP RAM (can write to it)
-    }
 }
 
 template <typename T>
