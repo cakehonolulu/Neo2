@@ -175,10 +175,6 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
         
-        // EE RDRAM initialization
-        case 0x1F801010:
-            return static_cast<T>(0x0);
-
         case 0x1000F200:
             return static_cast<T>(sbus_maddr);
             break;
@@ -198,6 +194,10 @@ T io_read(Bus *bus, std::uint32_t address) {
         case 0x1000F400:
         case 0x1000F410:
         case 0x1000F420:
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(0x0);
+            }
             break;
 
         case 0x1000F430:
@@ -231,6 +231,48 @@ T io_read(Bus *bus, std::uint32_t address) {
                 return static_cast<T>(bus->gs.read(address));
             }
             break;
+
+        // ?
+        case 0x1A000006:
+        {
+            if constexpr (sizeof(T) == 2) {
+                static int state = 0;
+
+                if (state == 2) {
+                    return static_cast<T>(0xAABB);
+                } else {
+                    if (state == 1) {
+                        state = 2;
+                    } else {
+                        state = 1;
+                    }
+                    return static_cast<T>(0x0);
+                }
+            }
+            break;
+        }
+
+        case 0x1A000010:
+        {
+            if constexpr (sizeof(T) == 2) {
+                return static_cast<T>(0x0);
+            }
+            break;
+        }
+
+        // EE RDRAM initialization
+        case 0x1F801010:
+            return static_cast<T>(0x0);
+
+        // DEV9?
+        case 0x1F80146E:
+        {
+            if constexpr (sizeof(T) == 1)
+            {
+                return static_cast<T>(0x0);
+            }
+            break;
+        }
 
         case 0x1F801100 ... 0x1F80112F: {
             if constexpr (sizeof(T) != 16)
@@ -266,6 +308,14 @@ T io_read(Bus *bus, std::uint32_t address) {
         {
             if constexpr (sizeof(T) == 2) {
                 return static_cast<uint16_t>(0);
+            }
+            break;
+        }
+
+        case 0x1F801450: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(0x0);
             }
             break;
         }
@@ -477,9 +527,15 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
 
         // ?
+        case 0x1A000000:
+        case 0x1A000002:
+        case 0x1A000004:
+        case 0x1A000006:
         case 0x1A000008:
+        case 0x1A000010:
+        case 0x1A000012:
         {
-            if constexpr (sizeof(T) == 2) {
+            if constexpr (sizeof(T) != 16) {
                 return;
             }
             break;
