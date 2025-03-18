@@ -41,6 +41,7 @@ public:
 
     std::function<void(IOP*, std::uint32_t)> opcodes[256];
 
+    void execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints);
 
   private:
     std::unique_ptr<IOPJIT> jit;

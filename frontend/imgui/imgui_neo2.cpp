@@ -103,6 +103,10 @@ void ImGui_Neo2::run(int argc, char **argv)
         .help("Breakpoint address for EE")
         .nargs(1);
 
+    program.add_argument("--iop-breakpoint")
+        .help("Breakpoint address for IOP")
+        .nargs(1);
+
     try
     {
         program.parse_args(argc, argv);
@@ -147,6 +151,18 @@ void ImGui_Neo2::run(int argc, char **argv)
         {
             uint32_t address = std::stoul(breakpoint, nullptr, 16);
             breakpoints.add_breakpoint(address, CoreType::EE);
+        }
+    }
+
+    if (program.is_used("--iop-breakpoint"))
+    {
+        std::string breakpoints_str = program.get<std::string>("--iop-breakpoint");
+        std::stringstream ss(breakpoints_str);
+        std::string breakpoint;
+        while (std::getline(ss, breakpoint, ','))
+        {
+            uint32_t address = std::stoul(breakpoint, nullptr, 16);
+            breakpoints.add_breakpoint(address, CoreType::IOP);
         }
     }
 
@@ -627,13 +643,15 @@ void ImGui_Neo2::run(int argc, char **argv)
                             while (!frame_ended && !stop_requested) {
                                 // Calculate target cycles to run for this iteration
                                 unsigned int target_cycles = scheduler.calculate_run_cycles();
+                                int iop_cycles = scheduler.get_iop_run_cycles();
 
                                 // Record the starting cycle count (assumes core->cycles is updated by EE execution)
                                 uint64_t start_cycles = this->ee.cycles;
                                 
                                 // Execute the target number of cycles (this->ee.execute_cycles() will update core->cycles)
                                 if (!stop_requested) {
-                                    this->ee.execute_cycles(target_cycles, &breakpoints);
+                                    //this->ee.execute_cycles(target_cycles, &breakpoints);
+                                    this->iop.execute_cycles(iop_cycles, &breakpoints);
                                     ee_total_cycles += target_cycles;
                                 }
                                 

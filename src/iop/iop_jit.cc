@@ -55,6 +55,202 @@ IOPJIT::~IOPJIT() {
     }
 }
 
+
+uint32_t IOPJIT::execute_block(Breakpoint *breakpoints)
+{
+    // Try to find existing block
+    CompiledBlock *block = find_block(core->pc);
+
+    if (!block)
+    {
+        // Compile a new block if not found
+        block = compile_block(core->pc, breakpoints);
+        if (!block)
+        {
+            Logger::error("Error compiling block!");
+            return Neo2::exit(1, Neo2::Subsystem::IOP);
+        }
+
+        // Add to cache
+        if (block_cache.size() >= CACHE_SIZE)
+        {
+            evict_oldest_block();
+        }
+        block_cache[core->pc] = *block;
+    }
+
+    // Execute block
+    block->last_used = ++execution_count;
+    auto exec_fn = (int (*)())block->code_ptr;
+    core->cycles += block->cycles;
+    exec_fn();
+    return block->cycles;
+}
+
+void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
+{
+    iop_write32_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
+
+    iop_write32 =
+        llvm::Function::Create(iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", new_module.get());
+
+    iop_read32_type = llvm::FunctionType::get(
+        builder->getInt32Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
+
+    iop_read32 = llvm::Function::Create(iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", new_module.get());
+}
+
+CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
+{
+    uint32_t current_pc = start_pc;
+    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
+    bool is_branch = false;
+
+    // Create a new module for this block
+    auto new_module = std::make_unique<llvm::Module>("block_0x" + format("{:08X}", start_pc), *context);
+
+    if (!new_module)
+    {
+        Logger::error("Failed to create LLVM module");
+        return nullptr;
+    }
+
+    // Create function and basic block
+    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
+    llvm::Function *func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage,
+                                                  "exec_0x" + format("{:08X}", start_pc), new_module.get());
+
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
+    builder->SetInsertPoint(entry);
+
+    uint64_t old_cycles = core->cycles;
+    uint64_t block_cycles_ = 0;
+
+    setup_iop_jit_primitives(new_module); // Pass new_module to setup_ìop_jit_primitives
+
+    while (!Neo2::is_aborted())
+    {
+        if (breakpoints && breakpoints->has_breakpoint(current_pc, CoreType::IOP))
+        {
+            // Notify the main thread
+            Neo2::pause_emulation();
+
+            // Set breakpoint information in the debug interface
+            breakpoints->notify_breakpoint(current_pc);
+
+            goto compile_exit;
+        }
+
+        if (core->branching)
+        {
+            if (single_instruction_mode)
+                goto cont;
+
+            if (!single_instruction_mode)
+                core->branching = false; // Reset branching state
+            uint32_t delay_slot_pc = current_pc;
+            // Process the branch delay slot instruction
+            uint32_t opcode = core->fetch_opcode(delay_slot_pc);
+            auto [branch, _, error] = generate_ir_for_opcode(opcode, delay_slot_pc);
+            if (error)
+            {
+                Logger::error("Error processing likely delay slot opcode");
+                Neo2::exit(1, Neo2::Subsystem::IOP);
+                return nullptr;
+            }
+
+            current_pc = core->branch_dest + 4; // Set PC to the branch destination
+        }
+
+    cont:
+        uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
+
+        // Generate IR for the opcode
+        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+        is_branch = branch;
+
+        if (error)
+        {
+            Logger::error("Error generating IR for opcode");
+            Neo2::exit(1, Neo2::Subsystem::IOP);
+            return nullptr;
+        }
+
+        // Check if the opcode is a branch or jump
+        if (is_branch || single_instruction_mode)
+        {
+            if (!single_instruction_mode)
+            {
+                current_pc += 4;
+                opcode = core->fetch_opcode(current_pc);
+
+                auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
+
+                if (error)
+                {
+                    Logger::error("Error generating IR for branch-delay opcode");
+                    Neo2::exit(1, Neo2::Subsystem::IOP);
+                    return nullptr;
+                }
+            }
+
+            end_pc = current_pc_;
+            break;
+        }
+
+        current_pc = current_pc_; // Update PC to the next instruction address
+        current_pc += 4;
+    }
+
+compile_exit:
+    block_cycles_ = core->cycles - old_cycles;
+
+    builder->CreateRetVoid(); // Return from the function
+
+    // Prepare the module's LLVM IR
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    new_module->print(os, nullptr);
+    os.flush();
+
+    // Add the module to the LLJIT
+    if (auto err = lljit->addIRModule(
+            llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>())))
+    {
+        // Correctly pass the context
+        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
+        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
+        fflush(stdout);
+        return nullptr;
+    }
+
+    // Lookup the function in the JIT
+    auto sym = lljit->lookup("exec_0x" + format("{:08X}", start_pc));
+    if (!sym)
+    {
+        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
+        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
+        fflush(stdout);
+        return nullptr;
+    }
+
+    auto exec_fn = (void (*)())sym->getValue(); // Use getValue() instead of getAddress()
+
+    // Create and return the compiled block
+    auto block = new CompiledBlock();
+    block->start_pc = start_pc;
+    block->end_pc = end_pc;
+    block->code_ptr = (void *)exec_fn;
+    block->last_used = execution_count;
+    block->contains_branch = is_branch;
+    block->llvm_ir = str;
+    block->cycles = block_cycles_;
+
+    return block;
+}
+
 void IOPJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = &IOPJIT::iop_jit_sll; // SLL opcode
     opcode_table[0x00].funct3_map[0x08] = &IOPJIT::iop_jit_jr; // JR opcode
@@ -82,6 +278,16 @@ extern "C" uint32_t iop_read32(IOP* core, uint32_t addr) {
 
 extern "C" void iop_write32(IOP* core, uint32_t addr, uint32_t value) {
     core->bus->write32(addr, value);
+}
+
+void IOPJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints)
+{
+    uint64_t current_cycles = 0;
+    while (cycle_limit > current_cycles && !Neo2::is_aborted())
+    {
+        current_cycles += execute_block(breakpoints);
+        core->registers[0] = 0;
+    }
 }
 
 std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
@@ -118,269 +324,36 @@ std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode,
 void IOPJIT::base_error_handler(uint32_t opcode) {
     Logger::error("Unknown IOP LLVM IR opcode: " + format("0x{:08X}", opcode) +
                     " at PC: 0x" + format("{:08X}", core->pc));
-    Neo2::exit(1, Neo2::Subsystem::EE);
+    Neo2::exit(1, Neo2::Subsystem::IOP);
 }
 
 void IOPJIT::step() {
+    if (exec_type != RunType::Step)
+    {
+        block_cache.clear();
+    }
+    exec_type = RunType::Step;
     single_instruction_mode = true;
-    std::uint32_t opcode = core->fetch_opcode();
-    execute_opcode(opcode);
+    execute_block(nullptr);
     core->registers[0] = 0;
     single_instruction_mode = false;
 }
 
-void IOPJIT::run() {
+void IOPJIT::run(Breakpoint *breakpoints)
+{
+    if (exec_type != RunType::Step)
+    {
+        block_cache.clear();
+    }
+
+    if (!Neo2::is_aborted())
+        core->bus->gs.simul_vblank();
+
+    exec_type = RunType::Step;
     single_instruction_mode = false;
-    while (!Neo2::is_aborted()) {
-        execute_opcode_();
-        core->registers[0] = 0;
-    }
-}
-
-void IOPJIT::execute_opcode_() {
-    // Try to find existing block
-    CompiledBlock* block = find_block(core->pc);
-    
-    if (!block) {
-        // Compile new block if not found
-        block = compile_block_(core->pc, single_instruction_mode);
-        if (!block) {
-            return;
-        }
-
-        // Add to cache
-        if (block_cache.size() >= CACHE_SIZE) {
-            evict_oldest_block();
-        }
-        block_cache[core->pc] = *block;
-    }
-    
-    // Execute block
-    block->last_used = ++execution_count;
-    auto exec_fn = (int (*)())block->code_ptr;
-    core->cycles += block->cycles;
-    int result = exec_fn();
-}
-
-CompiledBlock* IOPJIT::compile_block_(uint32_t start_pc, bool single_instruction) {
-    uint32_t current_pc = start_pc;
-    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
-    bool is_branch = false;
-    uint32_t block_cycles = 0;
-    
-    // Create new module for this block
-    auto new_module = std::make_unique<llvm::Module>(
-        "block_" + std::to_string(start_pc), *context);
-    
-    if (!new_module) {
-        Logger::error("Failed to create LLVM module");
-        return nullptr;
-    }
-        
-    // Create function and basic block
-    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
-    llvm::Function *func = llvm::Function::Create(funcType, 
-                                                llvm::Function::ExternalLinkage,
-                                                "exec_" + std::to_string(start_pc),
-                                                new_module.get());
-
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
-    builder->SetInsertPoint(entry);
-
-    uint64_t old_cycles = core->cycles;
-    uint64_t block_cycles_ = 0;
-
-    while (!Neo2::is_aborted()) {
-        uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
-
-        // Generate IR for the opcode
-        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
-
-        is_branch = branch;
-
-        if (error) {
-            Logger::error("Error generating IR for opcode");
-            Neo2::exit(1, Neo2::Subsystem::EE);
-            return nullptr;
-        }
-
-        // Check if opcode is a branch or jump
-        if (single_instruction || is_branch) {
-
-            if (!single_instruction)
-            {
-                current_pc += 4;
-                opcode = core->fetch_opcode(current_pc);
-
-                auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
-
-                if (error) {
-                    Logger::error("Error generating IR for branch-delay opcode");
-                    Neo2::exit(1, Neo2::Subsystem::EE);
-                    return nullptr;
-                }
-            }
-
-            end_pc = current_pc_;
-            break;
-        }
-
-        current_pc = current_pc_;  // Update the PC to the next instruction address
-
-        if (!single_instruction) current_pc += 4;
-    }
-
-    block_cycles_ = core->cycles - old_cycles;
-
-    builder->CreateRetVoid();  // Return from the function
-
-    // Prepare the module's LLVM IR
-    std::string str;
-    llvm::raw_string_ostream os(str);
-    new_module->print(os, nullptr);
-    os.flush();
-
-    // Add the module to the LLJIT
-    if (auto err = lljit->addIRModule(llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>()))) {
-        // Correctly pass the context
-        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
-        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
-        fflush(stdout);
-        return nullptr;
-    }
-
-    // Lookup the function in the JIT
-    auto sym = lljit->lookup("exec_" + std::to_string(start_pc));
-    if (!sym) {
-        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
-        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
-        fflush(stdout);
-        return nullptr;
-    }
-
-    auto exec_fn = (void (*)())sym->getValue(); // Use getValue() instead of getAddress()
-
-    // Create and return the compiled block
-    auto block = new CompiledBlock();
-    block->start_pc = start_pc;
-    block->end_pc = end_pc;
-    block->code_ptr = (void*)exec_fn;
-    block->last_used = execution_count;
-    block->contains_branch = is_branch;
-    block->llvm_ir = str;
-    block->cycles = block_cycles_;
-
-    return block;
-}
-
-void IOPJIT::execute_opcode(std::uint32_t opcode) {
-    // Try to find existing block
-    CompiledBlock* block = find_block(core->pc);
-    
-    if (!block) {
-        // Compile new block if not found
-        block = compile_block(core->pc, single_instruction_mode);
-        if (!block) {
-            return;
-        }
-        
-        // Add to cache
-        if (block_cache.size() >= CACHE_SIZE) {
-            evict_oldest_block();
-        }
-        block_cache[core->pc] = *block;
-    }
-    
-    // Execute block
-    block->last_used = ++execution_count;
-    auto exec_fn = (int (*)())block->code_ptr;
-    int result = exec_fn();
-}
-
-CompiledBlock* IOPJIT::compile_block(uint32_t start_pc, bool single_instruction) {
-    uint32_t current_pc = start_pc;
-    uint32_t end_pc = start_pc; // Initialize end_pc to start_pc
-    bool is_branch = false;
-    
-    // Create new module for this block
-    auto new_module = std::make_unique<llvm::Module>(
-        "block_" + std::to_string(start_pc), *context);
-    
-    if (!new_module) {
-        Logger::error("Failed to create LLVM module");
-        return nullptr;
-    }
-        
-    // Create function and basic block
-    llvm::FunctionType *funcType = llvm::FunctionType::get(builder->getInt32Ty(), false);
-    llvm::Function *func = llvm::Function::Create(funcType, 
-                                                llvm::Function::ExternalLinkage,
-                                                "exec_" + std::to_string(start_pc),
-                                                new_module.get());
-
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(*context, "entry", func);
-    builder->SetInsertPoint(entry);
-
-    while (true) {
-        uint32_t opcode = core->fetch_opcode(); // Fix function call
-        
-        // Generate IR for opcode
-        auto [branch, current_pc_, error] = generate_ir_for_opcode(opcode, current_pc);
-
-        is_branch = branch;
-
-        if (error) {
-            Logger::error("Error generating IR for opcode");
-            Neo2::exit(1, Neo2::Subsystem::IOP);
-            return nullptr;
-        }
-
-        // Check if opcode is a branch or jump
-        if (is_branch || single_instruction) {
-            end_pc = current_pc_;
-            break;
-        }
-
-        current_pc = current_pc_;
-    }
-
-    builder->CreateRetVoid();
-
-    std::string str;
-    llvm::raw_string_ostream os(str);
-    new_module->print(os, nullptr);
-    os.flush();
-
-    // Add the module to the LLJIT
-    if (auto err = lljit->addIRModule(llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>()))) {
-        // Correctly pass the context
-        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
-        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
-        fflush(stdout);
-        return nullptr;
-    }
-
-    // Lookup the function in the JIT
-    auto sym = lljit->lookup("exec_" + std::to_string(start_pc));
-    if (!sym) {
-        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
-        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
-        fflush(stdout);
-        return nullptr;
-    }
-
-    auto exec_fn = (void (*)())sym->getValue(); // Use getValue() instead of getAddress()
-
-    // Create and return the compiled block
-    auto block = new CompiledBlock();
-    block->start_pc = start_pc;
-    block->end_pc = end_pc;
-    block->code_ptr = (void*)exec_fn;
-    block->last_used = execution_count;
-    block->contains_branch = is_branch;
-    block->llvm_ir = str;
-
-    return block;
+    if (!Neo2::is_aborted())
+        execute_block(breakpoints);
+    core->registers[0] = 0;
 }
 
 CompiledBlock* IOPJIT::find_block(uint32_t pc) {
@@ -568,36 +541,40 @@ void IOPJIT::iop_jit_slti(std::uint32_t opcode, uint32_t& current_pc, bool& is_b
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
+void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F;                        // Extract rs register
+    uint8_t rt = (opcode >> 16) & 0x1F;                        // Extract rt register
+    int16_t immediate = static_cast<int16_t>(opcode & 0xFFFF); // Extract immediate
 
-void IOPJIT::iop_jit_bne(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
-    uint8_t rs = (opcode >> 21) & 0x1F;
-    uint8_t rt = (opcode >> 16) & 0x1F;
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);
+    // Load the value from registers rs and rt
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
 
-    llvm::Value* gpr_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compare rs and rt (not equal)
+    llvm::Value *comparison = builder->CreateICmpNE(rs_value, rt_value);
+
+    // Calculate the branch target address
+    llvm::Value *branch_target = builder->CreateAdd(
+        builder->getInt32(current_pc),
+        builder->getInt32(immediate * 4 + 4) // Branch offset (immediate * 4 + 4 for the next instruction)
     );
 
-    llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
-    llvm::Value* rt_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
-    llvm::Value* condition = builder->CreateICmpNE(rs_value, rt_value);
-
-    llvm::BasicBlock* branch_block = llvm::BasicBlock::Create(*context, "branch", builder->GetInsertBlock()->getParent());
-    llvm::BasicBlock* continue_block = llvm::BasicBlock::Create(*context, "continue", builder->GetInsertBlock()->getParent());
-
-    builder->CreateCondBr(condition, branch_block, continue_block);
-
-    // Branch block
-    builder->SetInsertPoint(branch_block);
-    llvm::Value* target_pc = builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(offset * 4));
-    builder->CreateStore(target_pc, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)), llvm::PointerType::getUnqual(builder->getInt32Ty())));
-    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)), llvm::PointerType::getUnqual(builder->getInt1Ty())));
-    builder->CreateBr(continue_block);
-
-    // Continue block
-    builder->SetInsertPoint(continue_block);
+    // Update the PC based on the comparison result (branch taken or not)
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+
+    // If branch is taken, update the branch destination and set branching to true
+    builder->CreateStore(builder->CreateSelect(comparison, branch_target, builder->getInt32(current_pc + 4)),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+                                                 llvm::PointerType::getUnqual(builder->getInt32Ty())));
+    builder->CreateStore(builder->CreateSelect(comparison, builder->getInt1(true), builder->getInt1(false)),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+                                                 llvm::PointerType::getUnqual(builder->getInt1Ty())));
 
     is_branch = true;
 }

@@ -5,6 +5,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <cpu/cpu.hh>
+#include <constants.hh>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -44,10 +45,16 @@ public:
     IOPJIT(IOP* core);
     ~IOPJIT();
     std::unordered_map<uint32_t, CompiledBlock> block_cache;
-    void execute_opcode(std::uint32_t opcode);
-    void execute_opcode_();
     void step();
-    void run();
+    void run(Breakpoint *breakpoints);
+
+    void execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints);
+    void setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module);
+    
+    uint32_t execute_block(Breakpoint *breakpoints);
+    CompiledBlock *compile_block(uint32_t start_pc, Breakpoint *breakpoints);
+
+    RunType exec_type = RunType::Run;
 
     std::shared_ptr<const std::unordered_map<uint32_t, CompiledBlock>> get_block_cache() const {
         return std::make_shared<const std::unordered_map<uint32_t, CompiledBlock>>(block_cache);
@@ -59,8 +66,6 @@ private:
     uint64_t execution_count = 0;
     bool single_instruction_mode = false;
 
-    CompiledBlock* compile_block(uint32_t pc, bool single_instruction);
-    CompiledBlock* compile_block_(uint32_t start_pc, bool single_instruction);
     void link_blocks();
     void evict_oldest_block();
     CompiledBlock* find_block(uint32_t pc);

@@ -11,6 +11,7 @@
 #include <vector>
 #include <cpu/breakpoint.hh>
 #include <log/log.hh>
+#include <constants.hh>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -30,11 +31,6 @@
 
 #define Store       14
 #define Load        14
-
-enum class RunType {
-    Step,
-    Run
-};
 
 #define CAUSE_SYSCALL  (8 << 2)
 

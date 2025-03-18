@@ -89,10 +89,23 @@ void IOP::set_backend(EmulationMode mode) {
         case EmulationMode::JIT:
             Logger::info("Switching IOP to JIT mode.");
             step_ = std::bind(&IOPJIT::step, jit.get());
-            run_ = std::bind(&IOPJIT::run, jit.get());
+            run_ = std::bind(&IOPJIT::run, jit.get(), std::placeholders::_1);
             break;
         default:
             Logger::error("Unsupported IOP mode.");
             exit(1);
+    }
+}
+
+void IOP::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints)
+{
+    if (jit)
+    {
+        fflush(stdout);
+        jit->execute_cycles(cycle_limit, breakpoints);
+    }
+    else
+    {
+        Logger::error("JIT is not initialized");
     }
 }
