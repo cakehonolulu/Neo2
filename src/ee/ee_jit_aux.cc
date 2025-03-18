@@ -11,14 +11,9 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Verifier.h>
+#include <constants.hh>
 #include <sstream>
 #include <thread>
-
-#ifdef _WIN32
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT
-#endif
 
 static const char* ee_get_syscall(int n) {
     switch (n) {

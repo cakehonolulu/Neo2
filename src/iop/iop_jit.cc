@@ -87,20 +87,6 @@ uint32_t IOPJIT::execute_block(Breakpoint *breakpoints)
     return block->cycles;
 }
 
-void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
-{
-    iop_write32_type = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
-
-    iop_write32 =
-        llvm::Function::Create(iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", new_module.get());
-
-    iop_read32_type = llvm::FunctionType::get(
-        builder->getInt32Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
-
-    iop_read32 = llvm::Function::Create(iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", new_module.get());
-}
-
 CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
 {
     uint32_t current_pc = start_pc;
@@ -270,14 +256,6 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui; // LUI opcode
     opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw; // LW opcode
     opcode_table[0x2B].single_handler = &IOPJIT::iop_jit_sw; // SW opcode
-}
-
-extern "C" uint32_t iop_read32(IOP* core, uint32_t addr) {
-    return core->bus->read32(addr);
-}
-
-extern "C" void iop_write32(IOP* core, uint32_t addr, uint32_t value) {
-    core->bus->write32(addr, value);
 }
 
 void IOPJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints)
