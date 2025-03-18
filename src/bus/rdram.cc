@@ -186,7 +186,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].test34 = mch_drd_ & 0xFFFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.test34 = mch_drd_ & 0xFFFF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TEST34");
             break;
@@ -201,7 +208,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].napx.value = mch_drd_ & 0x7FF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.napx.value = mch_drd_ & 0x7FF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to NAPX");
             break;
@@ -216,7 +230,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].devid = mch_drd_ & 0x1F;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.devid = mch_drd_ & 0x1F;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to DEVID");
             break;
@@ -231,7 +252,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].cca.value = mch_drd_ & 0xFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.cca.value = mch_drd_ & 0xFF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to CCA");
             break;
@@ -246,7 +274,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].ccb.value = mch_drd_ & 0xFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.ccb.value = mch_drd_ & 0xFF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to CCB");
             break;
@@ -261,7 +296,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].pdnxa = mch_drd_ & 0x3F;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.pdnxa = mch_drd_ & 0x3F;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to PDNXA");
             break;
@@ -276,7 +318,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].pdnx = mch_drd_ & 0x7;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.pdnx = mch_drd_ & 0x7;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to PDNX");
             break;
@@ -291,7 +340,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tparm.value = mch_drd_ & 0x7F;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.tparm.value = mch_drd_ & 0x7F;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TPARM");
             break;
@@ -306,7 +362,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tfrm = mch_drd_ & 0xF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.tfrm = mch_drd_ & 0xF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TFRM");
             break;
@@ -321,7 +384,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tcdly1 = mch_drd_ & 0x3;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.tcdly1 = mch_drd_ & 0x3;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TCDLY1");
             break;
@@ -336,7 +406,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].skip.value = mch_drd_ & 0x7;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.skip.value = mch_drd_ & 0x7;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to SKIP");
             break;
@@ -351,7 +428,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].tcycle = mch_drd_ & 0x3F;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.tcycle = mch_drd_ & 0x3F;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TCYCLE");
             break;
@@ -366,7 +450,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].test77 = mch_drd_ & 0xFFFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.test77 = mch_drd_ & 0xFFFF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TEST77");
             break;
@@ -381,7 +472,14 @@ void RDRAM::swr()
             }
             else
             {
-                rdram_ic[((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low)].test78 = mch_drd_ & 0xFFFF;
+                for (auto &ic : rdram_ic)
+                {
+                    if (ic.init.sdevid == ((mch_ricm_.sdev_high << 5) | mch_ricm_.sdev_low))
+                    {
+                        ic.test78 = mch_drd_ & 0xFFFF;
+                        return;
+                    }
+                }
             }
             Logger::info("RDRAM SWR register write to TEST78");
             break;
