@@ -52,7 +52,6 @@ static const std::unordered_map<std::string, std::function<void(Bus&)>> bios_qui
         bus.dmac.D_ENABLER = 0x1201;
         bus.ram.resize(1024 * 1024 * 64); // Resize to 64MB
         std::fill(bus.ram.begin(), bus.ram.end(), 0);
-        printf("ram.size: %zu\n", bus.ram.size());
 
     }},
     // SCPH-10000 BIOS
