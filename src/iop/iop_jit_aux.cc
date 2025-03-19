@@ -20,6 +20,11 @@ extern "C" EXPORT uint32_t iop_read32(IOP *core, uint32_t addr)
     return core->bus->read32(addr);
 }
 
+extern "C" EXPORT void iop_write8(IOP *core, uint32_t addr, uint32_t value)
+{
+    core->bus->write8(addr, value);
+}
+
 extern "C" EXPORT void iop_write32(IOP *core, uint32_t addr, uint32_t value)
 {
     core->bus->write32(addr, value);
@@ -27,15 +32,21 @@ extern "C" EXPORT void iop_write32(IOP *core, uint32_t addr, uint32_t value)
 
 void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
 {
-    iop_write32_type = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
-
-    iop_write32 =
-        llvm::Function::Create(iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", new_module.get());
-
     iop_read32_type = llvm::FunctionType::get(
         builder->getInt32Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
 
     iop_read32 =
         llvm::Function::Create(iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", new_module.get());
+
+    iop_write8_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt8Ty()}, false);
+
+    iop_write8 =
+        llvm::Function::Create(iop_write8_type, llvm::Function::ExternalLinkage, "iop_write8", new_module.get());
+
+    iop_write32_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);
+
+    iop_write32 =
+        llvm::Function::Create(iop_write32_type, llvm::Function::ExternalLinkage, "iop_write32", new_module.get());
 }

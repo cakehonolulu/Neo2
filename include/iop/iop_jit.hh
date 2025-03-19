@@ -79,7 +79,10 @@ private:
     std::unique_ptr<llvm::orc::LLJIT> lljit;
 
     llvm::FunctionType* iop_read32_type;
-    llvm::Function* iop_read32;
+    llvm::Function *iop_read32;
+
+    llvm::FunctionType *iop_write8_type;
+    llvm::Function *iop_write8;
     llvm::FunctionType* iop_write32_type;
     llvm::Function* iop_write32;
 
@@ -111,5 +114,7 @@ private:
     void iop_jit_beq(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
     void iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
-    void iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core);
+    void iop_jit_sw(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_sb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mtc0(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 };
