@@ -547,6 +547,16 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // PS2 IOP BIOS POST2
+        case 0x1F802070: {
+            if constexpr (sizeof(T) != 16)
+            {
+                Logger::debug("IOP POST2 BIOS: " + format("{:02X}", value & 0xFF));
+            }
+            break;
+        }
+
+
         case 0xFFFFFFF0 ... 0xFFFFFFFF: {
             break;
         }
