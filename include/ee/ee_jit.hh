@@ -262,6 +262,11 @@ private:
     void ee_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_ei(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
     void ee_jit_div1(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
+    void ee_jit_xor(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
+    void ee_jit_mthi(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
+    void ee_jit_mtlo(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
+    void ee_jit_bgezl(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
+    void ee_jit_multu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, EE *core);
 
     void ee_jit_cop1(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);
     void ee_jit_cop2(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, EE* core);

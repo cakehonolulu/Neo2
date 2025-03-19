@@ -309,7 +309,15 @@ cont:
                 goto compile_exit;
             }
 
+            // BLTZL
             if ((func == 0x01 && (((opcode >> 16) & 0x1F)) == 0x02))
+            {
+                core->likely_branch = true;
+                goto compile_exit;
+            }
+
+            // BGEZL
+            if ((func == 0x01 && (((opcode >> 16) & 0x1F)) == 0x03))
             {
                 core->likely_branch = true;
                 goto compile_exit;
