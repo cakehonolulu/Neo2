@@ -255,6 +255,7 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x0C].single_handler = &IOPJIT::iop_jit_andi; // ANDI opcode
     opcode_table[0x0D].single_handler = &IOPJIT::iop_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui; // LUI opcode
+    opcode_table[0x20].single_handler = &IOPJIT::iop_jit_lb;  // LB opcode
     opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw; // LW opcode
     opcode_table[0x28].single_handler = &IOPJIT::iop_jit_sb;  // SB opcode
     opcode_table[0x2B].single_handler = &IOPJIT::iop_jit_sw; // SW opcode
@@ -397,7 +398,7 @@ void IOPJIT::iop_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_b
     );
     // Load the value from the rs register
     llvm::Value* rs_value = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
-        builder->getInt32Ty(), gpr_base, builder->getInt32(rs * 4)
+        builder->getInt32Ty(), gpr_base, builder->getInt32(rs)
     ));
     // Create the immediate value (signed 16-bit immediate, sign-extended to 32-bit)
     llvm::Value* imm_value = builder->getInt32(imm);
@@ -424,7 +425,7 @@ void IOPJIT::iop_jit_addi(std::uint32_t opcode, uint32_t& current_pc, bool& is_b
     // No Overflow Block (continue with normal flow)
     builder->SetInsertPoint(no_overflow_block);
     // Store the result in the destination register (rt)
-    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt * 4));
+    llvm::Value* rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
     builder->CreateStore(result, rt_ptr);
     // Emit the update to PC after this operation
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
@@ -695,22 +696,36 @@ void IOPJIT::iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_br
     is_branch = true;
 }
 
-void IOPJIT::iop_jit_lw(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
-    uint8_t rt = (opcode >> 16) & 0x1F; // Extract the destination register (rt)
-    uint8_t rs = (opcode >> 21) & 0x1F; // Extract the base register (rs)
+void IOPJIT::iop_jit_lw(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F;                     // Extract the base register (rs)
+    uint8_t rt = (opcode >> 16) & 0x1F;                     // Extract the destination register (rt)
     int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
-    uint32_t addr = core->registers[rs] + offset;
-    llvm::Value* core_value = llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core));
-    // Create the arguments for read32
-    llvm::Value* addr_value = llvm::ConstantInt::get(builder->getInt32Ty(), addr);
+
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt8Ty()));
+
+    // Load the base register value (rs) from the GPR array
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base,
+                                                  builder->getInt32(rs) // GPR uses 32-bit (4 bytes) offset
+                                                  ));
+
+    // Offset is a 16-bit signed immediate, so extend it to 32-bit
+    llvm::Value *offset_value = builder->getInt32(offset);
+
+    // Calculate the effective address: addr = base + offset
+    llvm::Value *addr_value = builder->CreateAdd(rs_value, offset_value);
+
     // Call read32: read32(core, addr)
-    llvm::Value* value = builder->CreateCall(iop_read32, {core_value, addr_value});
-    llvm::Value* gpr_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
-    );
-    llvm::Value* gpr_u32_0 = builder->CreateGEP(builder->getInt32Ty(), gpr_base, {builder->getInt32(rt)});
-    builder->CreateStore(value, gpr_u32_0);
+    llvm::Value *value_to_load = builder->CreateCall(
+        iop_read32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), addr_value});
+
+    // Store the zero-extended value in the rt register
+    llvm::Value *rt_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rt));
+    builder->CreateStore(value_to_load, rt_ptr);
+
+    // Emit the update to PC after this operation
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
@@ -735,43 +750,105 @@ void IOPJIT::iop_jit_sw(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     llvm::Value* value_to_store = builder->CreateLoad(builder->getInt32Ty(), builder->CreateGEP(
         builder->getInt32Ty(), gpr_base, builder->getInt32(rt)
     ));
-    // Call write32: write32(core, addr, value_to_store)
+
+    // --- Cache isolation check ---
+    // Assume the status register (SR) is stored in CP0 register 12.
+    llvm::Value *sr_ptr =
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->cop0_registers[12])),
+                                llvm::PointerType::getUnqual(builder->getInt32Ty()));
+    llvm::Value *sr_value = builder->CreateLoad(builder->getInt32Ty(), sr_ptr);
+    // Isolate the cache-isolation bit (0x10000).
+    llvm::Value *isolation = builder->CreateAnd(sr_value, builder->getInt32(0x10000));
+    // Condition: if (isolation == 0) then cache is not isolated and we can write.
+    llvm::Value *not_isolated = builder->CreateICmpEQ(isolation, builder->getInt32(0));
+
+    // Create two basic blocks: one for performing the write and one for skipping.
+    llvm::Function *currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock *writeBB = llvm::BasicBlock::Create(builder->getContext(), "write", currentFunc);
+    llvm::BasicBlock *skipBB = llvm::BasicBlock::Create(builder->getContext(), "skip", currentFunc);
+    llvm::BasicBlock *continueBB = llvm::BasicBlock::Create(builder->getContext(), "continue", currentFunc);
+
+    // Conditional branch based on cache isolation.
+    builder->CreateCondBr(not_isolated, writeBB, skipBB);
+
+    // In the "write" block, perform the store using iop_write8.
+    builder->SetInsertPoint(writeBB);
     builder->CreateCall(iop_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
-                                    addr_value, value_to_store});
-    // Emit the update to PC after this operation
+                                     addr_value, value_to_store});
+    // After writing, branch to the continue block.
+    builder->CreateBr(continueBB);
+
+    // In the "skip" block, optionally log a message (here we just call Logger::error).
+    builder->SetInsertPoint(skipBB);
+    // (You could emit a call to a logging function if desired; for now, we simply do nothing.)
+    builder->CreateBr(continueBB);
+
+    // Continue.
+    builder->SetInsertPoint(continueBB);
+
+    // Update the program counter.
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
 void IOPJIT::iop_jit_sb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
 {
-    uint8_t rt = (opcode >> 16) & 0x1F;                     // Extract the source register (rt)
-    uint8_t rs = (opcode >> 21) & 0x1F;                     // Extract the base register (rs)
-    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the immediate (offset)
+    // Extract registers and offset.
+    uint8_t rt = (opcode >> 16) & 0x1F;                     // Source register
+    uint8_t rs = (opcode >> 21) & 0x1F;                     // Base register
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // 16-bit immediate
 
-    llvm::Value *gpr_base =
-        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-                                llvm::PointerType::getUnqual(builder->getInt32Ty())
-        );
+    // Get GPR base pointer (each register is 32-bit).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
 
-    // Load the base register value (rs) from the GPR array
+    // Load base register (rs) value.
     llvm::Value *rs_value = builder->CreateLoad(
         builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
 
-    // Offset is a 16-bit signed immediate, so extend it to 32-bit
+    // Extend offset and compute effective address.
     llvm::Value *offset_value = builder->getInt32(offset);
-
-    // Calculate the effective address: addr = base + offset
     llvm::Value *addr_value = builder->CreateAdd(rs_value, offset_value);
 
-    // Load the value to store from register rt
+    // Load value to store from register rt.
     llvm::Value *value_to_store = builder->CreateLoad(
         builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
 
-    // Call iop_write8 with the correct arguments: write8(core, addr, value_to_store)
-    builder->CreateCall(iop_write8, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
-                                    addr_value, value_to_store});
+    // --- Cache isolation check ---
+    // Assume the status register (SR) is stored in CP0 register 12.
+    llvm::Value *sr_ptr =
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->cop0_registers[12])),
+                                llvm::PointerType::getUnqual(builder->getInt32Ty()));
+    llvm::Value *sr_value = builder->CreateLoad(builder->getInt32Ty(), sr_ptr);
+    // Isolate the cache-isolation bit (0x10000).
+    llvm::Value *isolation = builder->CreateAnd(sr_value, builder->getInt32(0x10000));
+    // Condition: if (isolation == 0) then cache is not isolated and we can write.
+    llvm::Value *not_isolated = builder->CreateICmpEQ(isolation, builder->getInt32(0));
 
-    // Emit the update to PC after this operation
+    // Create two basic blocks: one for performing the write and one for skipping.
+    llvm::Function *currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock *writeBB = llvm::BasicBlock::Create(builder->getContext(), "write", currentFunc);
+    llvm::BasicBlock *skipBB = llvm::BasicBlock::Create(builder->getContext(), "skip", currentFunc);
+    llvm::BasicBlock *continueBB = llvm::BasicBlock::Create(builder->getContext(), "continue", currentFunc);
+
+    // Conditional branch based on cache isolation.
+    builder->CreateCondBr(not_isolated, writeBB, skipBB);
+
+    // In the "write" block, perform the store using iop_write8.
+    builder->SetInsertPoint(writeBB);
+    builder->CreateCall(iop_write8, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+                                     addr_value, value_to_store});
+    // After writing, branch to the continue block.
+    builder->CreateBr(continueBB);
+
+    // In the "skip" block, optionally log a message (here we just call Logger::error).
+    builder->SetInsertPoint(skipBB);
+    // (You could emit a call to a logging function if desired; for now, we simply do nothing.)
+    builder->CreateBr(continueBB);
+
+    // Continue.
+    builder->SetInsertPoint(continueBB);
+
+    // Update the program counter.
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }
 
@@ -789,5 +866,46 @@ void IOPJIT::iop_jit_mtc0(std::uint32_t opcode, uint32_t &current_pc, bool &is_b
                                                      llvm::PointerType::getUnqual(builder->getInt32Ty()));
     llvm::Value *cop0_u32_0 = builder->CreateGEP(builder->getInt32Ty(), cop0_base, builder->getInt32(rd));
     builder->CreateStore(gpr_value, cop0_u32_0);
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_lb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F;                     // Extract the base register (rs)
+    uint8_t rt = (opcode >> 16) & 0x1F;                     // Extract the destination register (rt)
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF); // Extract the offset (16-bit immediate)
+
+    llvm::Value *gpr_base =
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                llvm::PointerType::getUnqual(builder->getInt8Ty())
+        );
+
+    // Load the base register value (rs) from the GPR array
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base,
+                                                  builder->getInt32(rs) // GPR uses 32-bit (4 bytes) offset
+                                                  ));
+
+    // Offset is a 16-bit signed immediate, so extend it to 32-bit
+    llvm::Value *offset_value = builder->getInt32(offset);
+
+    // Calculate the effective address: addr = base + offset
+    llvm::Value *addr_value = builder->CreateAdd(rs_value, offset_value);
+
+    // Call read8: read8(core, addr)
+    llvm::Value *value_to_load = builder->CreateCall(
+        iop_read8, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), addr_value});
+
+    // Cast the loaded value to 8 bits to ensure correct zero-extension
+    llvm::Value *byte_value = builder->CreateTrunc(value_to_load, builder->getInt8Ty());
+
+    // Zero-extend the fetched byte
+    llvm::Value *sign_extended_value = builder->CreateSExt(byte_value, builder->getInt32Ty());
+
+    // Store the zero-extended value in the rt register
+    llvm::Value *rt_ptr = builder->CreateGEP(builder->getInt64Ty(), gpr_base, builder->getInt32(rt));
+    builder->CreateStore(sign_extended_value, rt_ptr);
+
+    // Emit the update to PC after this operation
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

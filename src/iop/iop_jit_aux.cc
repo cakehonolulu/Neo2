@@ -15,6 +15,11 @@
 #include <sstream>
 #include <thread>
 
+extern "C" EXPORT uint32_t iop_read8(IOP *core, uint32_t addr)
+{
+    return core->bus->read8(addr);
+}
+
 extern "C" EXPORT uint32_t iop_read32(IOP *core, uint32_t addr)
 {
     return core->bus->read32(addr);
@@ -32,8 +37,14 @@ extern "C" EXPORT void iop_write32(IOP *core, uint32_t addr, uint32_t value)
 
 void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
 {
+    iop_read8_type = llvm::FunctionType::get(
+        builder->getInt8Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
+
+    iop_read8 =
+        llvm::Function::Create(iop_read8_type, llvm::Function::ExternalLinkage, "iop_read8", new_module.get());
+
     iop_read32_type = llvm::FunctionType::get(
-        builder->getInt32Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
+        builder->getInt8Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
 
     iop_read32 =
         llvm::Function::Create(iop_read32_type, llvm::Function::ExternalLinkage, "iop_read32", new_module.get());

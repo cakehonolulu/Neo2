@@ -510,10 +510,14 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // SSBUS Delay Register?
         case 0x1F801010:
-            // NOP, unknown register
             break;
-            
+
+        // IOP RAM SIZE Register
+        case 0x1F801060:
+            break;
+
         case 0x1F801100 ... 0x1F80112F: {
             if constexpr (sizeof(T) != 16)
             {
@@ -556,6 +560,9 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // IOP Cache Register
+        case 0xFFFE0130:
+            break;
 
         case 0xFFFFFFF0 ... 0xFFFFFFFF: {
             break;
