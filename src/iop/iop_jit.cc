@@ -315,7 +315,7 @@ void IOPJIT::step() {
     }
     exec_type = RunType::Step;
     single_instruction_mode = true;
-    execute_block(nullptr);
+    if (!Neo2::is_aborted()) execute_block(nullptr);
     core->registers[0] = 0;
     single_instruction_mode = false;
 }
@@ -327,13 +327,9 @@ void IOPJIT::run(Breakpoint *breakpoints)
         block_cache.clear();
     }
 
-    if (!Neo2::is_aborted())
-        core->bus->gs.simul_vblank();
-
     exec_type = RunType::Step;
     single_instruction_mode = false;
-    if (!Neo2::is_aborted())
-        execute_block(breakpoints);
+    if (!Neo2::is_aborted()) execute_block(breakpoints);
     core->registers[0] = 0;
 }
 
@@ -667,32 +663,36 @@ void IOPJIT::iop_jit_jr(std::uint32_t opcode, uint32_t& current_pc, bool& is_bra
     is_branch = true;
 }
 
-void IOPJIT::iop_jit_jal(std::uint32_t opcode, uint32_t& current_pc, bool& is_branch, IOP* core) {
-    uint32_t target = opcode & 0x03FFFFFF; // Extract the 26-bit target address
-    // Shift the target address left by 2 (since instructions are 4 bytes)
-    uint32_t target_address = (target << 2);
-    // Calculate the return address (next instruction's address)
-    uint32_t return_address = current_pc + 4;
-    // Store the return address in register $31 (the link register)
-    llvm::Value* gpr_base = builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
-    );
-    
-    llvm::Value* ra_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(31)); // $31 = $ra
-    builder->CreateStore(builder->getInt32(return_address), ra_ptr);
-    // Set the branch destination to the calculated target address
-    builder->CreateStore(builder->getInt32(target_address), builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
-        llvm::PointerType::getUnqual(builder->getInt32Ty())
-    ));
-    // Mark the instruction as a branch
-    builder->CreateStore(builder->getInt1(true), builder->CreateIntToPtr(
-        builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
-        llvm::PointerType::getUnqual(builder->getInt1Ty())
-    ));
+void IOPJIT::iop_jit_jal(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract the 26-bit target address from the opcode
+    uint32_t target = opcode & 0x03FFFFFF;
+
+    // The jump address is formed by shifting the target address left by 2 (to account for word alignment)
+    // and setting the upper 4 bits of the address (from the current PC)
+    uint32_t jump_address = (current_pc & 0xF0000000) | (target << 2);
+
+    // Store the return address (current_pc + 4) into the $ra register (register 31)
+    llvm::Value *gpr_base =
+        builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                llvm::PointerType::getUnqual(builder->getInt32Ty()) // Each register is 32-bit
+        );
+    llvm::Value *return_address = builder->getInt32(current_pc + 8);
+    builder->CreateStore(return_address, builder->CreateGEP(builder->getInt32Ty(), gpr_base,
+                                                            builder->getInt32(31) // Store in $ra (register 31)
+                                                            ));
+
+    // Call EMIT_EE_UPDATE_PC to update the program counter (pc = jump_address)
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
-    // Set the branch flag
+
+    // Update the program counter to the jump address
+    builder->CreateStore(builder->getInt32(jump_address),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+                                                 llvm::PointerType::getUnqual(builder->getInt32Ty())));
+    builder->CreateStore(builder->getInt1(true),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+                                                 llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
     is_branch = true;
 }
 
