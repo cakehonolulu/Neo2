@@ -368,11 +368,11 @@ void ImGuiDebug::render_debug_window(const char* window_name, CPU* cpu, bool& ps
     };
 
     // Lambda to render register with optional input field
-    auto render_register = [&](const char* label, uint64_t value, int reg_index = -1) {
-        ImGui::Text("%s: 0x%016llX", label, value);
+    auto render_register = [&](const char* label, uint32_t value, int reg_index = -1) {
+        ImGui::Text("%s: 0x%08X", label, value);
         if (ImGui::IsItemClicked()) {
             selected_register = reg_index;
-            snprintf(new_value, sizeof(new_value), "%016llX", value);
+            snprintf(new_value, sizeof(new_value), "%08X", value);
         }
 
         if (selected_register == reg_index) {
