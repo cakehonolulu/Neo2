@@ -550,6 +550,14 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
         case 0x1F801060:
             break;
 
+        // IOP DPCR - DMA Priority/Enable
+        case 0x1F8010F0:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->iop_dmac.write(address, value);
+            }
+            break;
+
         case 0x1F801100 ... 0x1F80112F: {
             if constexpr (sizeof(T) != 16)
             {
