@@ -297,6 +297,20 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
 
+        case 0x1F808200 ... 0x1F80823F:
+        case 0x1F808240 ... 0x1F80825F:
+        case 0x1F808260:
+        case 0x1F808264:
+        case 0x1F808268:
+        case 0x1F80826C:
+        case 0x1F808270:
+        case 0x1F808274:
+        case 0x1F808280:
+            if constexpr (sizeof(T) != 16) {
+                return static_cast<T>(bus->sio2.read(address));
+            }
+            break;
+
         case 0xFFFFFFF0 ... 0xFFFFFFFF: {
             if constexpr (sizeof(T) != 16)
             {
@@ -599,6 +613,21 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
         }
+
+        case 0x1F808200 ... 0x1F80823F:
+        case 0x1F808240 ... 0x1F80825F:
+        case 0x1F808260:
+        case 0x1F808264:
+        case 0x1F808268:
+        case 0x1F80826C:
+        case 0x1F808270:
+        case 0x1F808274:
+        case 0x1F808280:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sio2.write(address, value);
+            }
+            break;
 
         // IOP Cache Register
         case 0xFFFE0130:

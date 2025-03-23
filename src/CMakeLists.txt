@@ -11,6 +11,7 @@ target_sources(neo2
         iop/iop_jit_aux.cc
         iop/iop_timer.cc
         iop/iop_dmac.cc
+        iop/iop_sio2.cc
         ee/ee.cc
         ee/ee_interpreter.cc
         ee/ee_jit.cc
