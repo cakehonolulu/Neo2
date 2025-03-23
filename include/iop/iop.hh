@@ -30,8 +30,8 @@ public:
     void unknown_opcode(std::uint32_t opcode);
     void set_backend(EmulationMode mode);
 
-    std::uint32_t registers[32];
-    std::uint32_t cop0_registers[32];
+    std::uint32_t registers[32] __attribute__((__packed__));
+    std::uint32_t cop0_registers[32] __attribute__((__packed__));
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
     bool branching = false;
