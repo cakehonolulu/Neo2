@@ -495,7 +495,7 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
 
-        // ?
+        // IOP?
         case 0x1A000000:
         case 0x1A000002:
         case 0x1A000004:
@@ -510,8 +510,40 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // Expansion 1 Base Address
+        case 0x1F801000:
+            break;
+
+        // Expansion 2 Base Address
+        case 0x1F801004:
+            break;
+
+        // Expansion 1 Delay Register?
+        case 0x1F801008:
+            break;
+
+        // Expansion 3 Delay Register?
+        case 0x1F80100C:
+            break;
+
         // SSBUS Delay Register?
         case 0x1F801010:
+            break;
+
+        // SPU Delay Register?
+        case 0x1F801014:
+            break;
+
+        // CDROM Delay Register?
+        case 0x1F801018:
+            break;
+
+        // ? Delay Register?
+        case 0x1F80101C:
+            break;
+
+        // ? Register
+        case 0x1F801020:
             break;
 
         // IOP RAM SIZE Register
