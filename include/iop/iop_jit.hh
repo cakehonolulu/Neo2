@@ -121,4 +121,6 @@ private:
     void iop_jit_sb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_mtc0(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_lb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_addu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_sltu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 };
