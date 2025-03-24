@@ -20,6 +20,11 @@ extern "C" EXPORT uint8_t iop_read8(IOP *core, uint32_t addr)
     return core->bus->read8(addr);
 }
 
+extern "C" EXPORT uint16_t iop_read16(IOP *core, uint32_t addr)
+{
+    return core->bus->read16(addr);
+}
+
 extern "C" EXPORT uint32_t iop_read32(IOP *core, uint32_t addr)
 {
     return core->bus->read32(addr);
@@ -28,6 +33,11 @@ extern "C" EXPORT uint32_t iop_read32(IOP *core, uint32_t addr)
 extern "C" EXPORT void iop_write8(IOP *core, uint32_t addr, uint8_t value)
 {
     core->bus->write8(addr, value);
+}
+
+extern "C" EXPORT void iop_write16(IOP *core, uint32_t addr, uint16_t value)
+{
+    core->bus->write16(addr, value);
 }
 
 extern "C" EXPORT void iop_write32(IOP *core, uint32_t addr, uint32_t value)
@@ -43,6 +53,11 @@ void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
     iop_read8 =
         llvm::Function::Create(iop_read8_type, llvm::Function::ExternalLinkage, "iop_read8", new_module.get());
 
+    iop_read16_type = llvm::FunctionType::get(
+        builder->getInt16Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
+
+    iop_read16 = llvm::Function::Create(iop_read16_type, llvm::Function::ExternalLinkage, "iop_read16", new_module.get());
+
     iop_read32_type = llvm::FunctionType::get(
         builder->getInt32Ty(), {llvm::PointerType::getUnqual(builder->getInt8Ty()), builder->getInt32Ty()}, false);
 
@@ -54,6 +69,12 @@ void IOPJIT::setup_iop_jit_primitives(std::unique_ptr<llvm::Module> &new_module)
 
     iop_write8 =
         llvm::Function::Create(iop_write8_type, llvm::Function::ExternalLinkage, "iop_write8", new_module.get());
+
+    iop_write16_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt16Ty()}, false);
+
+    iop_write16 =
+        llvm::Function::Create(iop_write16_type, llvm::Function::ExternalLinkage, "iop_write16", new_module.get());
 
     iop_write32_type = llvm::FunctionType::get(
         llvm::Type::getVoidTy(*context), {builder->getInt64Ty(), builder->getInt32Ty(), builder->getInt32Ty()}, false);

@@ -241,6 +241,7 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x00] = &IOPJIT::iop_jit_sll; // SLL opcode
     opcode_table[0x00].funct3_map[0x08] = &IOPJIT::iop_jit_jr; // JR opcode
     opcode_table[0x00].funct3_map[0x21] = &IOPJIT::iop_jit_addu; // ADDU opcode
+    opcode_table[0x00].funct3_map[0x24] = &IOPJIT::iop_jit_and; // AND opcode
     opcode_table[0x00].funct3_map[0x25] = &IOPJIT::iop_jit_or; // OR opcode
     opcode_table[0x00].funct3_map[0x2B] = &IOPJIT::iop_jit_sltu; // SLTU opcode
 
@@ -258,6 +259,7 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x0D].single_handler = &IOPJIT::iop_jit_ori; // ORI opcode
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui; // LUI opcode
     opcode_table[0x20].single_handler = &IOPJIT::iop_jit_lb;  // LB opcode
+    opcode_table[0x21].single_handler = &IOPJIT::iop_jit_lh;  // LH opcode
     opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw; // LW opcode
     opcode_table[0x28].single_handler = &IOPJIT::iop_jit_sb;  // SB opcode
     opcode_table[0x2B].single_handler = &IOPJIT::iop_jit_sw; // SW opcode
@@ -983,5 +985,68 @@ void IOPJIT::iop_jit_sltu(std::uint32_t opcode, uint32_t &current_pc, bool &is_b
     builder->CreateStore(result, builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd)));
 
     // Update the program counter after the instruction is executed.
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+void IOPJIT::iop_jit_lh(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract destination (rt) and base (rs) registers and the signed 16-bit offset.
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    int16_t offset = static_cast<int16_t>(opcode & 0xFFFF);
+
+    // Get the base pointer to the GPR array (each register is 32-bit).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load GPR[rs] (32-bit value).
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Extend the 16-bit offset to a 32-bit integer.
+    llvm::Value *offset_value = builder->getInt32(offset);
+
+    // Calculate the effective address: addr = GPR[rs] + offset.
+    llvm::Value *addr_value = builder->CreateAdd(rs_value, offset_value);
+
+    // Call the IOP 16-bit read function.
+    llvm::Value *halfword = builder->CreateCall(
+        iop_read16, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), addr_value});
+
+    // Sign-extend the 16-bit value to 32 bits.
+    llvm::Value *value_to_store = builder->CreateSExt(halfword, builder->getInt32Ty());
+
+    // Store the result into GPR[rt] (32-bit).
+    builder->CreateStore(value_to_store, builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Update the program counter.
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_and(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Decode opcode fields.
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register
+    uint8_t rt = (opcode >> 16) & 0x1F; // Source register
+    uint8_t rd = (opcode >> 11) & 0x1F; // Destination register
+
+    // Get the base pointer to the GPR array (each register is 32-bit).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load the value from GPR[rs] (32-bit).
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Load the value from GPR[rt] (32-bit).
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Perform bitwise AND.
+    llvm::Value *result = builder->CreateAnd(rs_value, rt_value);
+
+    // Store the result into GPR[rd] (32-bit).
+    builder->CreateStore(result, builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd)));
+
+    // Update the program counter.
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

@@ -78,14 +78,17 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::orc::LLJIT> lljit;
 
+    llvm::FunctionType *iop_read8_type;
+    llvm::Function *iop_read8;
+    llvm::FunctionType *iop_read16_type;
+    llvm::Function *iop_read16;
     llvm::FunctionType* iop_read32_type;
     llvm::Function *iop_read32;
 
-    llvm::FunctionType *iop_read8_type;
-    llvm::Function *iop_read8;
-
     llvm::FunctionType *iop_write8_type;
     llvm::Function *iop_write8;
+    llvm::FunctionType *iop_write16_type;
+    llvm::Function *iop_write16;
     llvm::FunctionType* iop_write32_type;
     llvm::Function* iop_write32;
 
@@ -123,4 +126,6 @@ private:
     void iop_jit_lb(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_addu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_sltu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_lh(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_and(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 };
