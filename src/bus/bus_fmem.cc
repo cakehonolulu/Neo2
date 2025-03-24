@@ -580,6 +580,17 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // SSBUS?
+        case 0x1F801400:
+        case 0x1F801404:
+        case 0x1F801408:
+        case 0x1F80140C:
+        case 0x1F801410:
+        case 0x1F801414:
+        case 0x1F801418:
+        case 0x1F801420:
+            break;
+
         case 0x1F80141C:
         {
             if constexpr (sizeof(T) == 4) {
@@ -604,6 +615,14 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
         }
+
+        // IOP DPCR2 - DMA Priority/Enable 2
+        case 0x1F801570:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->iop_dmac.write(address, value);
+            }
+            break;
 
         // PS2 IOP BIOS POST2
         case 0x1F802070: {
@@ -631,6 +650,11 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
 
         // IOP Cache Register
         case 0xFFFE0130:
+            break;
+
+        // ?
+        case 0xFFFE0140:
+        case 0xFFFE0144:
             break;
 
         case 0xFFFFFFF0 ... 0xFFFFFFFF: {
