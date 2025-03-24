@@ -55,7 +55,7 @@ void IOP::reset() {
     std::memset(registers, 0, sizeof(registers));
     std::memset(cop0_registers, 0, sizeof(cop0_registers));
 
-    cop0_registers[15] = 0x2;
+    cop0_registers[15] = 0x1F;
 };
 
 std::uint32_t IOP::fetch_opcode() {
