@@ -111,16 +111,16 @@ void IOP_DMAC::write(uint32_t address, uint32_t value)
         dpcr = value;
         break;
 
-    case 0x570:
-        reg_name = "DPCR2";
-        Logger::info("IOP DMA register write to " + reg_name);
-        dpcr2 = value;
-        break;
-
     case 0x0F4:
         reg_name = "DICR";
         Logger::info("IOP DMA register write to " + reg_name);
         dicr = value;
+        break;
+
+    case 0x570:
+        reg_name = "DPCR2";
+        Logger::info("IOP DMA register write to " + reg_name);
+        dpcr2 = value;
         break;
 
     case 0x574:
