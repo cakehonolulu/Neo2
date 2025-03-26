@@ -242,6 +242,14 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x02] = &IOPJIT::iop_jit_srl; // SRL opcode
     opcode_table[0x00].funct3_map[0x03] = &IOPJIT::iop_jit_sra;  // SRA opcode
     opcode_table[0x00].funct3_map[0x08] = &IOPJIT::iop_jit_jr; // JR opcode
+    opcode_table[0x00].funct3_map[0x10] = &IOPJIT::iop_jit_mfhi;   // MFHI opcode
+    opcode_table[0x00].funct3_map[0x11] = &IOPJIT::iop_jit_mthi;  // MTHI opcode
+    opcode_table[0x00].funct3_map[0x12] = &IOPJIT::iop_jit_mflo;   // MFLO opcode
+    opcode_table[0x00].funct3_map[0x13] = &IOPJIT::iop_jit_mtlo;  // MTLO opcode
+    opcode_table[0x00].funct3_map[0x18] = &IOPJIT::iop_jit_mult;   // MULT opcode
+    opcode_table[0x00].funct3_map[0x19] = &IOPJIT::iop_jit_multu;  // MULTU opcode
+    opcode_table[0x00].funct3_map[0x1A] = &IOPJIT::iop_jit_div;  // DIV opcode
+    opcode_table[0x00].funct3_map[0x1B] = &IOPJIT::iop_jit_divu;    // DIVU opcode
     opcode_table[0x00].funct3_map[0x21] = &IOPJIT::iop_jit_addu; // ADDU opcode
     opcode_table[0x00].funct3_map[0x23] = &IOPJIT::iop_jit_subu;  // SUBU opcode
     opcode_table[0x00].funct3_map[0x24] = &IOPJIT::iop_jit_and; // AND opcode
@@ -1370,4 +1378,225 @@ void IOPJIT::iop_jit_bgtz(std::uint32_t opcode, uint32_t &current_pc, bool &is_b
                                                  llvm::PointerType::getUnqual(builder->getInt1Ty())));
 
     is_branch = true;
+}
+
+void IOPJIT::iop_jit_divu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register 1
+    uint8_t rt = (opcode >> 16) & 0x1F; // Source register 2
+
+    // Get the base pointer to the GPR registers (32-bit each).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load the values from registers rs and rt
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Check if division by zero is occurring (rt_value == 0). If rt_value == 0, results are undefined.
+    llvm::Value *zero_value = builder->getInt32(0);
+    llvm::Value *is_zero = builder->CreateICmpEQ(rt_value, zero_value);
+
+    // Divide rs_value by rt_value (unsigned) when rt_value is not zero.
+    llvm::Value *div_result = builder->CreateSelect(is_zero, zero_value, builder->CreateUDiv(rs_value, rt_value));
+
+    llvm::Value *mod_result = builder->CreateSelect(is_zero, zero_value, builder->CreateURem(rs_value, rt_value));
+
+    // Store the results in core->lo and core->hi
+    builder->CreateStore(div_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                             llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    builder->CreateStore(mod_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                             llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_mflo(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rd = (opcode >> 11) & 0x1F; // Destination register
+
+    // Load the value of core->lo
+    llvm::Value *lo_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                       llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Get the base pointer to GPR registers and store the value in rd
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rd_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+
+    builder->CreateStore(lo_value, rd_ptr);
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_mtlo(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register
+
+    // Get the base pointer to GPR registers and load the value of rs
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Store the value from rs into core->lo
+    builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                           llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_mfhi(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rd = (opcode >> 11) & 0x1F; // Destination register
+
+    // Load the value of core->hi
+    llvm::Value *hi_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                       llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Get the base pointer to GPR registers and store the value in rd
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rd_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+
+    builder->CreateStore(hi_value, rd_ptr);
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_mthi(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register
+
+    // Get the base pointer to GPR registers and load the value of rs
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Store the value from rs into core->hi
+    builder->CreateStore(rs_value, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                           llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_div(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register 1
+    uint8_t rt = (opcode >> 16) & 0x1F; // Source register 2
+
+    // Get the base pointer to GPR registers (32-bit each).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load values from rs and rt
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Handle division by zero (results undefined)
+    llvm::Value *zero_value = builder->getInt32(0);
+    llvm::Value *is_zero = builder->CreateICmpEQ(rt_value, zero_value);
+
+    llvm::Value *div_result = builder->CreateSelect(is_zero, zero_value, builder->CreateSDiv(rs_value, rt_value));
+
+    llvm::Value *mod_result = builder->CreateSelect(is_zero, zero_value, builder->CreateSRem(rs_value, rt_value));
+
+    // Store quotient in core->lo and remainder in core->hi
+    builder->CreateStore(div_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                             llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    builder->CreateStore(mod_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                             llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_mult(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register 1
+    uint8_t rt = (opcode >> 16) & 0x1F; // Source register 2
+
+    // Get the base pointer to GPR registers
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load values from rs and rt
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Perform signed multiplication (result is 64-bit)
+    llvm::Value *result = builder->CreateMul(builder->CreateSExt(rs_value, builder->getInt64Ty()),
+                                             builder->CreateSExt(rt_value, builder->getInt64Ty()));
+
+    // Split result into upper 32 bits (hi) and lower 32 bits (lo)
+    llvm::Value *lo_result = builder->CreateTrunc(result, builder->getInt32Ty());
+    llvm::Value *hi_result = builder->CreateLShr(result, builder->getInt64(32)); // Shift to extract upper 32 bits
+    hi_result = builder->CreateTrunc(hi_result, builder->getInt32Ty());
+
+    builder->CreateStore(lo_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                            llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    builder->CreateStore(hi_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                            llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_multu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register 1
+    uint8_t rt = (opcode >> 16) & 0x1F; // Source register 2
+
+    // Get the base pointer to GPR registers
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load values from rs and rt
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Perform unsigned multiplication (result is 64-bit)
+    llvm::Value *result = builder->CreateMul(builder->CreateZExt(rs_value, builder->getInt64Ty()),
+                                             builder->CreateZExt(rt_value, builder->getInt64Ty()));
+
+    // Split result into upper 32 bits (hi) and lower 32 bits (lo)
+    llvm::Value *lo_result = builder->CreateTrunc(result, builder->getInt32Ty());
+    llvm::Value *hi_result = builder->CreateLShr(result, builder->getInt64(32)); // Shift to extract upper 32 bits
+    hi_result = builder->CreateTrunc(hi_result, builder->getInt32Ty());
+
+    builder->CreateStore(lo_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->lo)),
+                                                            llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    builder->CreateStore(hi_result, builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->hi)),
+                                                            llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

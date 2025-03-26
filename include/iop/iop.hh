@@ -32,6 +32,8 @@ public:
 
     std::uint32_t registers[32] __attribute__((__packed__));
     std::uint32_t cop0_registers[32] __attribute__((__packed__));
+    std::uint32_t lo = 0;
+    std::uint32_t hi = 0;
     std::uint32_t pc = 0xBFC00000;
     std::uint32_t next_pc;
     bool branching = false;

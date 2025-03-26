@@ -138,4 +138,12 @@ private:
     void iop_jit_subu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_blez(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_bgtz(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_divu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mflo(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mtlo(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mfhi(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mthi(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_div(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_mult(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_multu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 };
