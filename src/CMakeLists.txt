@@ -9,6 +9,7 @@ target_sources(neo2
         iop/iop_interpreter.cc
         iop/iop_jit.cc
         iop/iop_jit_aux.cc
+        iop/iop_jit_opcodes.cc
         iop/iop_timer.cc
         iop/iop_dmac.cc
         iop/iop_sio2.cc
