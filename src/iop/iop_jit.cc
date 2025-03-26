@@ -242,6 +242,7 @@ void IOPJIT::initialize_opcode_table() {
     opcode_table[0x00].funct3_map[0x02] = &IOPJIT::iop_jit_srl; // SRL opcode
     opcode_table[0x00].funct3_map[0x03] = &IOPJIT::iop_jit_sra;  // SRA opcode
     opcode_table[0x00].funct3_map[0x08] = &IOPJIT::iop_jit_jr; // JR opcode
+    opcode_table[0x00].funct3_map[0x09] = &IOPJIT::iop_jit_jalr;   // JALR opcode
     opcode_table[0x00].funct3_map[0x10] = &IOPJIT::iop_jit_mfhi;   // MFHI opcode
     opcode_table[0x00].funct3_map[0x11] = &IOPJIT::iop_jit_mthi;  // MTHI opcode
     opcode_table[0x00].funct3_map[0x12] = &IOPJIT::iop_jit_mflo;   // MFLO opcode
@@ -1656,4 +1657,58 @@ void IOPJIT::iop_jit_sh(std::uint32_t opcode, uint32_t &current_pc, bool &is_bra
     // Continue block: finish the instruction.
     builder->SetInsertPoint(continueBB);
     EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_jalr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract the source register (rs) and destination register (rd)
+    uint8_t rs = (opcode >> 21) & 0x1F; // Source register
+    uint8_t rd = (opcode >> 11) & 0x1F; // Destination register
+
+    // Get the base pointer to the GPR array (each register is 32-bit)
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load the jump target address from the source register (rs)
+    llvm::Value *jump_target = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Calculate the return address (current_pc + 8)
+    llvm::Value *return_address = builder->getInt32(current_pc + 8);
+
+    // Create blocks for rd != 0 condition
+    llvm::Function *currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock *storeReturnBB = llvm::BasicBlock::Create(builder->getContext(), "store_return", currentFunc);
+    llvm::BasicBlock *skipStoreBB = llvm::BasicBlock::Create(builder->getContext(), "skip_store", currentFunc);
+    llvm::BasicBlock *continueBB = llvm::BasicBlock::Create(builder->getContext(), "continue", currentFunc);
+
+    // Check if rd != 0
+    llvm::Value *is_not_zero = builder->CreateICmpNE(builder->getInt32(rd), builder->getInt32(0));
+    builder->CreateCondBr(is_not_zero, storeReturnBB, skipStoreBB);
+
+    // Block to store the return address into rd
+    builder->SetInsertPoint(storeReturnBB);
+    llvm::Value *rd_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+    builder->CreateStore(return_address, rd_ptr);
+    builder->CreateBr(continueBB);
+
+    // Block to skip storing the return address
+    builder->SetInsertPoint(skipStoreBB);
+    builder->CreateBr(continueBB);
+
+    // Continue block
+    builder->SetInsertPoint(continueBB);
+
+    // Update the program counter
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+
+    // Set the branch destination to the jump target and mark the processor as branching
+    builder->CreateStore(jump_target,
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+                                                 llvm::PointerType::getUnqual(builder->getInt32Ty())));
+    builder->CreateStore(builder->getInt1(true),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+                                                 llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
+    is_branch = true;
 }

@@ -147,4 +147,5 @@ private:
     void iop_jit_mult(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_multu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_sh(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_jalr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 };
