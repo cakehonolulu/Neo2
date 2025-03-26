@@ -26,11 +26,13 @@ IOP_DMAC::IOP_DMAC() {
     dmacinten = 0;
 }
 
-uint32_t IOP_DMAC::read(uint32_t address) {
+uint32_t IOP_DMAC::read(uint32_t address)
+{
     std::string reg_name;
     uint32_t channel_index = (address >> 4) & 0xF; // Determine which channel
 
-    switch (address & 0xFFF) {
+    switch (address & 0xFFF)
+    {
         case 0x000:
             reg_name = format("DMA_MADR[{}]", channel_index);
             Logger::info("IOP DMA register read from " + reg_name);
@@ -56,21 +58,37 @@ uint32_t IOP_DMAC::read(uint32_t address) {
             Logger::info("IOP DMA register read from " + reg_name);
             return dpcr;
 
-        case 0x570:
-            reg_name = "DPCR2";
-            Logger::info("IOP DMA register read from " + reg_name);
-            return dpcr2;
-
         case 0x0F4:
             reg_name = "DICR";
             Logger::info("IOP DMA register read from " + reg_name);
             return dicr;
 
+        case 0x570:
+            reg_name = "DPCR2";
+            Logger::info("IOP DMA register read from " + reg_name);
+            return dpcr2;
+
+        case 0x574:
+            reg_name = "DICR2";
+            Logger::info("IOP DMA register read from " + reg_name);
+            return dicr2;
+
+        case 0x578:
+            reg_name = "DMACEN";
+            Logger::info("IOP DMA register read from " + reg_name);
+            return dmace;
+
+        case 0x57C:
+            reg_name = "DMACINTEN";
+            Logger::info("IOP DMA register read from " + reg_name);
+            return dmacinten;
+
         default:
-            Logger::error("Invalid IOP DMA register write at address 0x" + format("{:08X}", address));
+            Logger::error("Invalid IOP DMA register read at address 0x" + format("{:08X}", address));
             break;
     }
 
+    // Exit on invalid access
     return Neo2::exit(1, Neo2::Subsystem::IOP);
 }
 

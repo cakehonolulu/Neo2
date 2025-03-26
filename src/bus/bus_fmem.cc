@@ -28,7 +28,10 @@ std::uint32_t sbus_maddr = 0;
 std::uint32_t sbus_saddr = 0;
 std::uint32_t sbus_smflag = 0;
 
-void Bus::fmem_init() {
+std::uint32_t iop_cache_reg = 0;
+
+void Bus::fmem_init()
+{
     tlb = TLB(42);
 
     // Initialize TLB entries for BIOS and RAM
@@ -259,6 +262,14 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
         
+        // IOP DMAC
+        case 0x1F801578:
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<uint32_t>(bus->iop_dmac.read(address));
+            }
+            break;
+
         // TOOL Model?
         /*
             https://web.archive.org/web/20210321075609/
@@ -311,6 +322,13 @@ T io_read(Bus *bus, std::uint32_t address) {
             }
             break;
 
+        case 0xFFFE0130: {
+            if constexpr (sizeof(T) == 4)
+            {
+                return static_cast<T>(iop_cache_reg);
+            }
+            break;
+        }
         case 0xFFFFFFF0 ... 0xFFFFFFFF: {
             if constexpr (sizeof(T) != 16)
             {
@@ -580,6 +598,11 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // IOP Boot Mode?
+        case 0x1F801450: {
+            break;
+        }
+
         // SSBUS?
         case 0x1F801400:
         case 0x1F801404:
@@ -616,8 +639,9 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
-        // IOP DPCR2 - DMA Priority/Enable 2
+        // IOP DMAC
         case 0x1F801570:
+        case 0x1F801578:
             if constexpr (sizeof(T) != 16)
             {
                 bus->iop_dmac.write(address, value);
@@ -650,6 +674,10 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
 
         // IOP Cache Register
         case 0xFFFE0130:
+            if constexpr (sizeof(T) != 16)
+            {
+                iop_cache_reg = static_cast<uint32_t>(value);
+            }
             break;
 
         // ?
