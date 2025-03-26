@@ -351,7 +351,7 @@ void IOPJIT::run(Breakpoint *breakpoints)
         block_cache.clear();
     }
 
-    exec_type = RunType::Step;
+    exec_type = RunType::Run;
     single_instruction_mode = false;
     if (!Neo2::is_aborted()) execute_block(breakpoints);
     core->registers[0] = 0;
