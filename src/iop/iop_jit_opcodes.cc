@@ -33,8 +33,12 @@ void IOPJIT::initialize_opcode_table()
     opcode_table[0x00].funct3_map[0x23] = &IOPJIT::iop_jit_subu;  // SUBU opcode
     opcode_table[0x00].funct3_map[0x24] = &IOPJIT::iop_jit_and;   // AND opcode
     opcode_table[0x00].funct3_map[0x25] = &IOPJIT::iop_jit_or;    // OR opcode
+    opcode_table[0x00].funct3_map[0x26] = &IOPJIT::iop_jit_xor;    // XOR opcode
     opcode_table[0x00].funct3_map[0x2A] = &IOPJIT::iop_jit_slt;   // SLT opcode
     opcode_table[0x00].funct3_map[0x2B] = &IOPJIT::iop_jit_sltu;  // SLTU opcode
+
+    opcode_table[0x01].funct3_map[0x00] = &IOPJIT::iop_jit_bltz; // BLTZ opcode
+    opcode_table[0x01].funct3_map[0x01] = &IOPJIT::iop_jit_bgez; // BGEZ opcode
 
     opcode_table[0x02].single_handler = &IOPJIT::iop_jit_j;     // J opcode
     opcode_table[0x03].single_handler = &IOPJIT::iop_jit_jal;   // JAL opcode
@@ -1394,6 +1398,99 @@ void IOPJIT::iop_jit_jalr(std::uint32_t opcode, uint32_t &current_pc, bool &is_b
                          builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
                                                  llvm::PointerType::getUnqual(builder->getInt32Ty())));
     builder->CreateStore(builder->getInt1(true),
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+                                                 llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
+    is_branch = true;
+}
+
+void IOPJIT::iop_jit_bgez(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F;                        // Extract source register (rs)
+    int16_t immediate = static_cast<int16_t>(opcode & 0xFFFF); // Extract 16-bit immediate
+
+    // Get a pointer to the 32-bit registers array.
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load the value from the rs register.
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // Compare if rs_value >= 0 (signed comparison)
+    llvm::Value *condition = builder->CreateICmpSGE(rs_value, builder->getInt32(0));
+
+    // Calculate branch target: PC + (immediate*4 + 4)
+    llvm::Value *branch_target =
+        builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(immediate * 4 + 4));
+
+    // Update the branch destination: if condition is true, use branch_target; otherwise, use PC+4.
+    llvm::Value *new_pc = builder->CreateSelect(condition, branch_target, builder->getInt32(current_pc + 4));
+
+    // Store the new PC into core->branch_dest.
+    builder->CreateStore(new_pc,
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+                                                 llvm::PointerType::getUnqual(builder->getInt32Ty())));
+
+    // Set the branching flag accordingly.
+    llvm::Value *branching_flag = builder->CreateSelect(condition, builder->getInt1(true), builder->getInt1(false));
+    builder->CreateStore(branching_flag,
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
+                                                 llvm::PointerType::getUnqual(builder->getInt1Ty())));
+
+    is_branch = true;
+}
+
+void IOPJIT::iop_jit_xor(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract the RS, RT, and RD register indices.
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rd = (opcode >> 11) & 0x1F;
+
+    // Create a pointer to the core's registers (each register is 32-bit).
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Load the values of RS and RT.
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Perform bitwise XOR of RS and RT.
+    llvm::Value *result = builder->CreateXor(rs_value, rt_value);
+
+    // Store the result into register RD.
+    llvm::Value *rd_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rd));
+    builder->CreateStore(result, rd_ptr);
+
+    // Update the program counter after executing the instruction.
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_bltz(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    int16_t immediate = static_cast<int16_t>(opcode & 0xFFFF);
+
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+
+    // BLTZ: branch if rs < 0
+    llvm::Value *condition = builder->CreateICmpSLT(rs_value, builder->getInt32(0));
+    llvm::Value *branch_target =
+        builder->CreateAdd(builder->getInt32(current_pc), builder->getInt32(immediate * 4 + 4));
+    llvm::Value *new_pc = builder->CreateSelect(condition, branch_target, builder->getInt32(current_pc + 4));
+
+    builder->CreateStore(new_pc,
+                         builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branch_dest)),
+                                                 llvm::PointerType::getUnqual(builder->getInt32Ty())));
+    llvm::Value *branching_flag = builder->CreateSelect(condition, builder->getInt1(true), builder->getInt1(false));
+    builder->CreateStore(branching_flag,
                          builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(&core->branching)),
                                                  llvm::PointerType::getUnqual(builder->getInt1Ty())));
 

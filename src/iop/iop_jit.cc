@@ -230,31 +230,54 @@ void IOPJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints)
     }
 }
 
-std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc) {
+std::tuple<bool, uint32_t, bool> IOPJIT::generate_ir_for_opcode(uint32_t opcode, uint32_t current_pc)
+{
     bool is_branch = false;
     bool error = false;
 
     uint8_t opcode_index = (opcode >> 26) & 0x3F;
-    uint8_t funct_or_rs = (opcode_index == 0x10) ? ((opcode >> 21) & 0x1F) : (opcode & 0x3F);
+    uint8_t funct_or_code;
+    if (opcode_index == 0x10)
+    {
+        funct_or_code = (opcode >> 21) & 0x1F;
+    }
+    else if (opcode_index == 0x01)
+    {
+        funct_or_code = (opcode >> 16) & 0x1F;
+    }
+    else
+    {
+        funct_or_code = opcode & 0x3F;
+    }
 
     auto it = opcode_table.find(opcode_index);
-    if (it != opcode_table.end()) {
+    if (it != opcode_table.end())
+    {
         OpcodeHandler handler = nullptr;
 
-        if (opcode_index == 0x10) {
-            auto rs_it = it->second.rs_map.find(funct_or_rs);
-            if (rs_it != it->second.rs_map.end()) handler = rs_it->second;
-        } else {
-            auto funct_it = it->second.funct3_map.find(funct_or_rs);
+        if (opcode_index == 0x10)
+        {
+            auto rs_it = it->second.rs_map.find(funct_or_code);
+            if (rs_it != it->second.rs_map.end())
+                handler = rs_it->second;
+        }
+        else
+        {
+            auto funct_it = it->second.funct3_map.find(funct_or_code);
             handler = (funct_it != it->second.funct3_map.end()) ? funct_it->second : it->second.single_handler;
         }
 
-        if (handler) {
+        if (handler)
+        {
             (this->*(handler))(opcode, current_pc, is_branch, core);
-        } else {
+        }
+        else
+        {
             base_error_handler(opcode);
         }
-    } else {
+    }
+    else
+    {
         base_error_handler(opcode);
     }
 
