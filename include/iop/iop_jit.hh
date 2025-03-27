@@ -4,6 +4,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/Core.h>
 #include <cpu/cpu.hh>
 #include <constants.hh>
 #include <memory>
@@ -148,4 +149,6 @@ private:
     void iop_jit_multu(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_sh(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_jalr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+
+    std::unordered_map<uint32_t, llvm::orc::ResourceTrackerSP> module_trackers;
 };

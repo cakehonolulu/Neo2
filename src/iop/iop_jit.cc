@@ -32,8 +32,8 @@ IOPJIT::IOPJIT(IOP* core) : core(core) {
     // Create LLJIT instance
     auto jit = llvm::orc::LLJITBuilder().create();
     if (!jit) {
-        Logger::error("Failed to create LLJIT: " + llvm::toString(jit.takeError()));
-        printf("Failed to create LLJIT: %s\n", llvm::toString(jit.takeError()).c_str());
+        Logger::error("Failed to create IOP LLJIT: " + llvm::toString(jit.takeError()));
+        printf("Failed to create IOP LLJIT: %s\n", llvm::toString(jit.takeError()).c_str());
         fflush(stdout);
         return;
     }
@@ -67,7 +67,7 @@ uint32_t IOPJIT::execute_block(Breakpoint *breakpoints)
         block = compile_block(core->pc, breakpoints);
         if (!block)
         {
-            Logger::error("Error compiling block!");
+            Logger::error("Error compiling IOP block!");
             return Neo2::exit(1, Neo2::Subsystem::IOP);
         }
 
@@ -98,7 +98,7 @@ CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
 
     if (!new_module)
     {
-        Logger::error("Failed to create LLVM module");
+        Logger::error("Failed to create IOP LLVM module");
         return nullptr;
     }
 
@@ -113,7 +113,7 @@ CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
     uint64_t old_cycles = core->cycles;
     uint64_t block_cycles_ = 0;
 
-    setup_iop_jit_primitives(new_module); // Pass new_module to setup_ìop_jit_primitives
+    setup_iop_jit_primitives(new_module); // Pass new_module to setup_iop_jit_primitives
 
     while (!Neo2::is_aborted())
     {
@@ -128,28 +128,6 @@ CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
             goto compile_exit;
         }
 
-        if (core->branching)
-        {
-            if (single_instruction_mode)
-                goto cont;
-
-            if (!single_instruction_mode)
-                core->branching = false; // Reset branching state
-            uint32_t delay_slot_pc = current_pc;
-            // Process the branch delay slot instruction
-            uint32_t opcode = core->fetch_opcode(delay_slot_pc);
-            auto [branch, _, error] = generate_ir_for_opcode(opcode, delay_slot_pc);
-            if (error)
-            {
-                Logger::error("Error processing likely delay slot opcode");
-                Neo2::exit(1, Neo2::Subsystem::IOP);
-                return nullptr;
-            }
-
-            current_pc = core->branch_dest + 4; // Set PC to the branch destination
-        }
-
-    cont:
         uint32_t opcode = core->fetch_opcode(current_pc); // Fetch the next opcode
 
         // Generate IR for the opcode
@@ -159,7 +137,7 @@ CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
 
         if (error)
         {
-            Logger::error("Error generating IR for opcode");
+            Logger::error("Error generating IR for IOP opcode");
             Neo2::exit(1, Neo2::Subsystem::IOP);
             return nullptr;
         }
@@ -176,7 +154,7 @@ CompiledBlock *IOPJIT::compile_block(uint32_t start_pc, Breakpoint *breakpoints)
 
                 if (error)
                 {
-                    Logger::error("Error generating IR for branch-delay opcode");
+                    Logger::error("Error generating IR for IOP branch-delay opcode");
                     Neo2::exit(1, Neo2::Subsystem::IOP);
                     return nullptr;
                 }
@@ -202,23 +180,28 @@ compile_exit:
     os.flush();
 
     // Add the module to the LLJIT
+    auto tracker = lljit->getMainJITDylib().createResourceTracker();
     if (auto err = lljit->addIRModule(
+            tracker,
             llvm::orc::ThreadSafeModule(std::move(new_module), std::make_unique<llvm::LLVMContext>())))
     {
         // Correctly pass the context
-        Logger::error("Failed to add module to LLJIT: " + llvm::toString(std::move(err)));
-        printf("Failed to add module to LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
+        printf("Failed to add module to IOP LLJIT: %s\n", llvm::toString(std::move(err)).c_str());
         fflush(stdout);
+        Logger::error("Failed to add module to IOP LLJIT: " + llvm::toString(std::move(err)));
         return nullptr;
     }
+
+    // Store the tracker for later removal
+    module_trackers[start_pc] = tracker;
 
     // Lookup the function in the JIT
     auto sym = lljit->lookup("exec_0x" + format("{:08X}", start_pc));
     if (!sym)
     {
-        Logger::error("Failed to JIT compile function: " + llvm::toString(sym.takeError()));
-        printf("Failed to JIT compile function: %s\n", llvm::toString(sym.takeError()).c_str());
+        printf("Failed to JIT compile IOP function: %s\n", llvm::toString(sym.takeError()).c_str());
         fflush(stdout);
+        Logger::error("Failed to JIT compile IOP function: " + llvm::toString(sym.takeError()));
         return nullptr;
     }
 
@@ -240,7 +223,7 @@ compile_exit:
 void IOPJIT::execute_cycles(uint64_t cycle_limit, Breakpoint *breakpoints)
 {
     uint64_t current_cycles = 0;
-    while (cycle_limit > current_cycles && !Neo2::is_aborted())
+    while (cycle_limit > current_cycles && !Neo2::is_aborted() && !Neo2::is_emulation_paused())
     {
         current_cycles += execute_block(breakpoints);
         core->registers[0] = 0;
@@ -287,6 +270,15 @@ void IOPJIT::base_error_handler(uint32_t opcode) {
 void IOPJIT::step() {
     if (exec_type != RunType::Step)
     {
+        // Remove all compiled modules
+        for (auto& [pc, tracker] : module_trackers) {
+            if (auto err = tracker->remove())
+            {
+                Logger::error("Error removing IOP IR module: " + llvm::toString(std::move(err)));
+            }
+        }
+        module_trackers.clear();
+
         block_cache.clear();
     }
     exec_type = RunType::Step;
