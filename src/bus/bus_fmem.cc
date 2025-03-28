@@ -147,21 +147,41 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
         
-        case 0x1000F200:
-            return static_cast<T>(sbus_maddr);
+        // SIF_MSCOM
+        case 0x1000F200: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<uint32_t>(bus->sif.read(address));
+            }
             break;
+        }
 
-        case 0x1000F210:
-            return static_cast<T>(sbus_saddr);
+        // SIF_SMCOM
+        case 0x1000F210: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<uint32_t>(bus->sif.read(address));
+            }
             break;
+        }
 
-        case 0x1000F220:
-            return static_cast<T>(sbus_msflag);
+        // SIF_MSFLG
+        case 0x1000F220: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<uint32_t>(bus->sif.read(address));
+            }
             break;
+        }
 
-        case 0x1000F230:
-            return static_cast<T>(0x1a12301);
+        // SIF_SMFLG
+        case 0x1000F230: {
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<uint32_t>(bus->sif.read(address));
+            }
             break;
+        }
 
         case 0x1000F400:
         case 0x1000F410:
@@ -437,6 +457,54 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
         }
 
+        // SIF_MSCOM
+        case 0x1000F200: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sif.write(address, value);
+            }
+            break;
+        }
+
+        // SIF_SMCOM
+        case 0x1000F210: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sif.write(address, value);
+            }
+            break;
+        }
+
+        // SIF_MSFLG
+        case 0x1000F220: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sif.write(address, value);
+            }
+            break;
+        }
+
+        // SIF_SMFLG
+        case 0x1000F230: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sif.write(address, value);
+            }
+            break;
+        }
+
+        // SIF_CTRL
+        case 0x1000F240: {
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->sif.write(address, value);
+            }
+            break;
+        }
+
+        case 0x1000F260:
+            break;
+
         case 0x1000F400:
         case 0x1000F410:
         case 0x1000F420:
@@ -453,34 +521,6 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
                 Logger::error("Unhandled non-32-bit write to RDRAM registers");
                 Neo2::exit(1, Neo2::Subsystem::Bus);
             }
-            break;
-
-        case 0x1000F200:
-            if constexpr (sizeof(T) == 4) {
-                sbus_maddr = value;
-            }
-            break;
-
-        case 0x1000F210:
-            if constexpr (sizeof(T) == 4) {
-                sbus_saddr = value;
-            }
-            break;
-
-        case 0x1000F220:
-            if constexpr (sizeof(T) == 4) {
-                sbus_msflag = value;
-            }
-            break;
-
-        case 0x1000F230:
-            if constexpr (sizeof(T) == 4) {
-                sbus_smflag = value;
-            }
-            break;
-
-        case 0x1000F240:
-        case 0x1000F260:
             break;
 
         case 0x1000F450:

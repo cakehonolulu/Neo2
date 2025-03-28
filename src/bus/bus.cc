@@ -61,7 +61,7 @@ static const std::unordered_map<std::string, std::function<void(Bus&)>> bios_qui
 
 Bus::Bus(BusMode mode)
     : tlb(48), sio(), ee_intc(), gif(*this), gs(), timers(), iop_timers(), vif(), ipu(), dmac(*this), rdram(),
-      iop_dmac(), sio2()
+      iop_dmac(), sio2(), sif()
 {
     Logger::set_subsystem("BUS");
 
