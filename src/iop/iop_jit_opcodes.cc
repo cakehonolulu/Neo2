@@ -59,12 +59,16 @@ void IOPJIT::initialize_opcode_table()
     opcode_table[0x0F].single_handler = &IOPJIT::iop_jit_lui;   // LUI opcode
     opcode_table[0x20].single_handler = &IOPJIT::iop_jit_lb;    // LB opcode
     opcode_table[0x21].single_handler = &IOPJIT::iop_jit_lh;    // LH opcode
+    opcode_table[0x22].single_handler = &IOPJIT::iop_jit_lwl;    // LWL opcode
     opcode_table[0x23].single_handler = &IOPJIT::iop_jit_lw;    // LW opcode
     opcode_table[0x24].single_handler = &IOPJIT::iop_jit_lbu;   // LBU opcode
     opcode_table[0x25].single_handler = &IOPJIT::iop_jit_lhu;   // LHU opcode
+    opcode_table[0x26].single_handler = &IOPJIT::iop_jit_lwr;   // LWR opcode
     opcode_table[0x28].single_handler = &IOPJIT::iop_jit_sb;    // SB opcode
     opcode_table[0x29].single_handler = &IOPJIT::iop_jit_sh;    // SH opcode
+    opcode_table[0x2A].single_handler = &IOPJIT::iop_jit_swl;   // SWL opcode
     opcode_table[0x2B].single_handler = &IOPJIT::iop_jit_sw;    // SW opcode
+    opcode_table[0x2E].single_handler = &IOPJIT::iop_jit_sw;    // SWR opcode
 }
 
 void IOPJIT::iop_jit_mfc0(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
@@ -1495,4 +1499,215 @@ void IOPJIT::iop_jit_bltz(std::uint32_t opcode, uint32_t &current_pc, bool &is_b
                                                  llvm::PointerType::getUnqual(builder->getInt1Ty())));
 
     is_branch = true;
+}
+
+void IOPJIT::iop_jit_swl(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract registers and immediate
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);
+
+    // Get pointer to GPR array (32-bit registers)
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Compute effective address = GPR[rs] + imm
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *imm_value = builder->getInt32(imm);
+    llvm::Value *eff_addr = builder->CreateAdd(rs_value, imm_value);
+
+    // Compute aligned address: eff_addr & ~3
+    llvm::Value *aligned_addr = builder->CreateAnd(eff_addr, builder->getInt32(~3));
+    // Compute alignment = eff_addr & 3
+    llvm::Value *alignment = builder->CreateAnd(eff_addr, builder->getInt32(3));
+
+    // Load the current 32-bit memory word at aligned_addr using iop_read32
+    llvm::Value *mem_word = builder->CreateCall(
+        iop_read32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), aligned_addr});
+
+    // Load the rt register value to store
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compute shift = (3 - alignment) * 8
+    llvm::Value *const3 = builder->getInt32(3);
+    llvm::Value *diff = builder->CreateSub(const3, alignment);
+    llvm::Value *shift = builder->CreateMul(diff, builder->getInt32(8));
+
+    // Compute mask = 0xFFFFFFFF >> (alignment * 8)
+    llvm::Value *alignMul8 = builder->CreateMul(alignment, builder->getInt32(8));
+    llvm::Value *mask = builder->CreateLShr(builder->getInt32(0xFFFFFFFF), alignMul8);
+
+    // Compute part from rt: (rt_value >> shift) & mask
+    llvm::Value *rt_shifted = builder->CreateLShr(rt_value, shift);
+    llvm::Value *rt_part = builder->CreateAnd(rt_shifted, mask);
+
+    // Compute new word: (mem_word & ~mask) | rt_part
+    llvm::Value *not_mask = builder->CreateNot(mask);
+    llvm::Value *mem_masked = builder->CreateAnd(mem_word, not_mask);
+    llvm::Value *new_word = builder->CreateOr(mem_masked, rt_part);
+
+    // Write new_word back to memory via iop_write32
+    builder->CreateCall(iop_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+                                      aligned_addr, new_word});
+
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_swr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract registers and immediate
+    uint8_t rt = (opcode >> 16) & 0x1F;
+    uint8_t rs = (opcode >> 21) & 0x1F;
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);
+
+    // Get pointer to GPR array (32-bit registers)
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Compute effective address = GPR[rs] + imm
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *imm_value = builder->getInt32(imm);
+    llvm::Value *eff_addr = builder->CreateAdd(rs_value, imm_value);
+
+    // Compute aligned address and alignment
+    llvm::Value *aligned_addr = builder->CreateAnd(eff_addr, builder->getInt32(~3));
+    llvm::Value *alignment = builder->CreateAnd(eff_addr, builder->getInt32(3));
+
+    // Load the current memory word from aligned_addr
+    llvm::Value *mem_word = builder->CreateCall(
+        iop_read32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), aligned_addr});
+
+    // Load the rt register value to store
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compute shift = alignment * 8
+    llvm::Value *shift = builder->CreateMul(alignment, builder->getInt32(8));
+
+    // Compute mask = 0xFFFFFFFF << ((3 - alignment) * 8)
+    llvm::Value *const3 = builder->getInt32(3);
+    llvm::Value *diff = builder->CreateSub(const3, alignment);
+    llvm::Value *shift_for_mask = builder->CreateMul(diff, builder->getInt32(8));
+    llvm::Value *mask = builder->CreateShl(builder->getInt32(0xFFFFFFFF), shift_for_mask);
+
+    // Compute part from rt: (rt_value << shift) & mask
+    llvm::Value *rt_shifted = builder->CreateShl(rt_value, shift);
+    llvm::Value *rt_part = builder->CreateAnd(rt_shifted, mask);
+
+    // Merge with existing memory word: (mem_word & ~mask) | rt_part
+    llvm::Value *not_mask = builder->CreateNot(mask);
+    llvm::Value *mem_masked = builder->CreateAnd(mem_word, not_mask);
+    llvm::Value *new_word = builder->CreateOr(mem_masked, rt_part);
+
+    // Write new word back to memory via iop_write32
+    builder->CreateCall(iop_write32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)),
+                                      aligned_addr, new_word});
+
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_lwl(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract registers and immediate
+    uint8_t rt = (opcode >> 16) & 0x1F; // destination register
+    uint8_t rs = (opcode >> 21) & 0x1F; // base register
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);
+
+    // Get pointer to GPR array
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Compute effective address = GPR[rs] + imm
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *imm_value = builder->getInt32(imm);
+    llvm::Value *eff_addr = builder->CreateAdd(rs_value, imm_value);
+
+    // Compute aligned address and alignment
+    llvm::Value *aligned_addr = builder->CreateAnd(eff_addr, builder->getInt32(~3));
+    llvm::Value *alignment = builder->CreateAnd(eff_addr, builder->getInt32(3));
+
+    // Load the 32-bit memory word from the aligned address
+    llvm::Value *mem_word = builder->CreateCall(
+        iop_read32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), aligned_addr});
+
+    // Load current value of rt from register file
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compute shift = (3 - alignment) * 8
+    llvm::Value *const3 = builder->getInt32(3);
+    llvm::Value *diff = builder->CreateSub(const3, alignment);
+    llvm::Value *shift = builder->CreateMul(diff, builder->getInt32(8));
+
+    // Compute mask = 0xFFFFFFFF >> (alignment * 8)
+    llvm::Value *alignMul8 = builder->CreateMul(alignment, builder->getInt32(8));
+    llvm::Value *mask = builder->CreateLShr(builder->getInt32(0xFFFFFFFF), alignMul8);
+
+    // Merge: new_rt = (mem_word << shift) | (rt_value & ~mask)
+    llvm::Value *mem_part = builder->CreateShl(mem_word, shift);
+    llvm::Value *not_mask = builder->CreateNot(mask);
+    llvm::Value *rt_preserve = builder->CreateAnd(rt_value, not_mask);
+    llvm::Value *new_rt = builder->CreateOr(mem_part, rt_preserve);
+
+    // Store the result back into rt register
+    llvm::Value *rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
+    builder->CreateStore(new_rt, rt_ptr);
+
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
+}
+
+void IOPJIT::iop_jit_lwr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core)
+{
+    // Extract registers and immediate
+    uint8_t rt = (opcode >> 16) & 0x1F; // destination register
+    uint8_t rs = (opcode >> 21) & 0x1F; // base register
+    int16_t imm = static_cast<int16_t>(opcode & 0xFFFF);
+
+    // Get pointer to GPR array
+    llvm::Value *gpr_base = builder->CreateIntToPtr(builder->getInt64(reinterpret_cast<uint64_t>(core->registers)),
+                                                    llvm::PointerType::getUnqual(builder->getInt32Ty()));
+
+    // Compute effective address = GPR[rs] + imm
+    llvm::Value *rs_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rs)));
+    llvm::Value *imm_value = builder->getInt32(imm);
+    llvm::Value *eff_addr = builder->CreateAdd(rs_value, imm_value);
+
+    // Compute aligned address and alignment
+    llvm::Value *aligned_addr = builder->CreateAnd(eff_addr, builder->getInt32(~3));
+    llvm::Value *alignment = builder->CreateAnd(eff_addr, builder->getInt32(3));
+
+    // Load the 32-bit memory word from the aligned address
+    llvm::Value *mem_word = builder->CreateCall(
+        iop_read32, {llvm::ConstantInt::get(builder->getInt64Ty(), reinterpret_cast<uint64_t>(core)), aligned_addr});
+
+    // Load current value of rt from register file
+    llvm::Value *rt_value = builder->CreateLoad(
+        builder->getInt32Ty(), builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt)));
+
+    // Compute shift = alignment * 8
+    llvm::Value *shift = builder->CreateMul(alignment, builder->getInt32(8));
+
+    // Compute mask = 0xFFFFFFFF << ((3 - alignment) * 8)
+    llvm::Value *const3 = builder->getInt32(3);
+    llvm::Value *diff = builder->CreateSub(const3, alignment);
+    llvm::Value *shift_for_mask = builder->CreateMul(diff, builder->getInt32(8));
+    llvm::Value *mask = builder->CreateShl(builder->getInt32(0xFFFFFFFF), shift_for_mask);
+
+    // Merge: new_rt = (mem_word >> shift) | (rt_value & ~mask)
+    llvm::Value *mem_part = builder->CreateLShr(mem_word, shift);
+    llvm::Value *not_mask = builder->CreateNot(mask);
+    llvm::Value *rt_preserve = builder->CreateAnd(rt_value, not_mask);
+    llvm::Value *new_rt = builder->CreateOr(mem_part, rt_preserve);
+
+    // Store the result back into rt register
+    llvm::Value *rt_ptr = builder->CreateGEP(builder->getInt32Ty(), gpr_base, builder->getInt32(rt));
+    builder->CreateStore(new_rt, rt_ptr);
+
+    EMIT_IOP_UPDATE_PC(core, builder, current_pc);
 }

@@ -152,6 +152,10 @@ private:
     void iop_jit_bgez(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_xor(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
     void iop_jit_bltz(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_swl(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_swr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_lwl(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
+    void iop_jit_lwr(std::uint32_t opcode, uint32_t &current_pc, bool &is_branch, IOP *core);
 
     std::unordered_map<uint32_t, llvm::orc::ResourceTrackerSP> module_trackers;
 };
