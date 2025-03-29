@@ -252,6 +252,27 @@ T io_read(Bus *bus, std::uint32_t address) {
             break;
         }
 
+        // CDVD
+        case 0x1F402004 ... 0x1F402008:
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(bus->cdvd.read(address));
+            }
+            break;
+
+        // CDVD
+        case 0x1F40200A:
+        case 0x1F40200B:
+        case 0x1F40200F:
+        case 0x1F402016:
+        case 0x1F402017:
+        case 0x1F402018:
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(bus->cdvd.read(address));
+            }
+            break;
+
         // EE RDRAM initialization
         case 0x1F801010:
             return static_cast<T>(0x0);
@@ -581,6 +602,27 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             }
             break;
         }
+        
+        // CDVD
+        case 0x1F402004 ... 0x1F402008:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->cdvd.write(address, value);
+            }
+            break;
+
+        // CDVD
+        case 0x1F40200A:
+        case 0x1F40200B:
+        case 0x1F40200F:
+        case 0x1F402016:
+        case 0x1F402017:
+        case 0x1F402018:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->cdvd.write(address, value);
+            }
+            break;
 
         // Expansion 1 Base Address
         case 0x1F801000:

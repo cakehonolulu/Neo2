@@ -19,6 +19,7 @@
 #include <iop/iop_dmac.hh>
 #include <iop/iop_sio2.hh>
 #include <sif/sif.hh>
+#include <cdvd/cdvd.hh>
 
 enum class BusMode
 {
@@ -58,6 +59,7 @@ class Bus
     IOP_SIO2 sio2;
 
     SIF sif;
+    CDVD cdvd;
 
     std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB &tlb);
 
