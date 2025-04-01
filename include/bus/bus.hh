@@ -20,6 +20,7 @@
 #include <iop/iop_sio2.hh>
 #include <sif/sif.hh>
 #include <cdvd/cdvd.hh>
+#include <firewire/firewire.hh>
 
 enum class BusMode
 {
@@ -60,6 +61,7 @@ class Bus
 
     SIF sif;
     CDVD cdvd;
+    FireWire firewire;
 
     std::uint32_t map_to_phys(std::uint32_t vaddr, const TLB &tlb);
 

@@ -29,5 +29,6 @@ target_sources(neo2
         ipu/ipu.cc
         sif/sif.cc
         cdvd/cdvd.cc
+        firewire/firewire.cc
         log/log.cpp
         scheduler.cc)

@@ -17,6 +17,7 @@ class Neo2 {
         GIF,
         GS,
         RDRAM,
+        Firewire,
         Disassembler,
         Frontend
     };

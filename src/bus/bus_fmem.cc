@@ -363,6 +363,26 @@ T io_read(Bus *bus, std::uint32_t address) {
             }
             break;
 
+        case 0x1F808400:
+            if constexpr (sizeof(T) != 16)
+            {
+                return static_cast<T>(bus->firewire.read(address));
+            }
+            break;
+
+        // TODO: Use firewire.read
+        case 0x1F80847C:
+            if constexpr (sizeof(T) == 4)
+            {
+                return static_cast<uint32_t>(0x10000001);
+            }
+            else
+            {
+                Logger::error("Unhandled non-32-bit read to 0x1F80847C register");
+                return static_cast<T>(Neo2::exit(1, Neo2::Subsystem::Bus));
+            }
+            break;
+
         case 0xFFFE0130: {
             if constexpr (sizeof(T) == 4)
             {
@@ -751,6 +771,13 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             if constexpr (sizeof(T) != 16)
             {
                 bus->sio2.write(address, value);
+            }
+            break;
+
+        case 0x1F808414:
+            if constexpr (sizeof(T) != 16)
+            {
+                bus->firewire.write(address, value);
             }
             break;
 
