@@ -3,6 +3,9 @@ project(Neo2 LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT supported OUTPUT error)
+
 set(CMAKE_C_FLAGS_DEBUG "-Wall -Wextra -g")
 set(CMAKE_C_FLAGS_MINSIZEREL "-Wall -Wextra -O0")
 set(CMAKE_C_FLAGS_RELWITHDEBINFO "-Wall -Wextra -g -O2")
@@ -106,6 +109,13 @@ add_custom_target(
 )
 
 add_executable(neo2)
+
+if( supported )
+    message(STATUS "IPO / LTO enabled")
+    set_property(TARGET neo2 PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+    message(STATUS "IPO / LTO not supported: <${error}>")
+endif()
 
 add_dependencies(neo2 compile_shaders)
 
