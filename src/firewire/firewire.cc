@@ -20,6 +20,11 @@ uint32_t FireWire::read(uint32_t address)
     std::string reg_name;
 
     switch (address & 0xFF) {
+        case i1934LLCCRegMap::NodeID: {
+            return llc_core_regs.node_id_reg.value | 1;
+            break;
+        }
+
         default:
             Logger::error("Invalid FireWire register read at address 0x" + format("{:08X}", address));
             break;
@@ -34,7 +39,12 @@ void FireWire::write(uint32_t address, uint32_t value)
 
     switch (address & 0xFF) {
         case i1934LLCCRegMap::PHY_Access: {
-            llc_core_regs.phy_access_reg.value = value;
+            // RgDat, RgAdr, WrPhy & RdPhy are the only writable bitfields
+            llc_core_regs.phy_access_reg.rgdat = ((value >> 16) & 0xF);
+            llc_core_regs.phy_access_reg.rgadr = ((value >> 24) & 0xF);
+            llc_core_regs.phy_access_reg.wrphy = ((value >> 30) & 1);
+            llc_core_regs.phy_access_reg.rdphy = ((value >> 31) & 1);
+
             if (llc_core_regs.phy_access_reg.rdphy && !llc_core_regs.phy_access_reg.wrphy)
             {
                 // Register read
@@ -67,8 +77,26 @@ void FireWire::write(uint32_t address, uint32_t value)
             }
             break;
         }
+
+        case i1934LLCCRegMap::Interrupt0:
+            llc_core_regs.interrupt0.value = value;
+            break;
+
+        case i1934LLCCRegMap::Interrupt1:
+            llc_core_regs.interrupt1.value = value;
+            break;
+
+        case i1934LLCCRegMap::Interrupt2:
+            llc_core_regs.interrupt2.value = value;
+            break;
+
+        case i1934LLCCRegMap::UBUF_Receive_Clear:
+            llc_core_regs.ubuf_recv_clear = value;
+            break;
+
         default:
             Logger::error("Invalid FireWire register write at address 0x" + format("{:08X}", address));
+            Neo2::exit(1, Neo2::Subsystem::Firewire);
             break;
     }
 }

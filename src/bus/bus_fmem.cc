@@ -775,6 +775,10 @@ void io_write(Bus *bus, std::uint32_t address, T value) {
             break;
 
         case 0x1F808414:
+        case 0x1F808420:
+        case 0x1F808428:
+        case 0x1F808430:
+        case 0x1F80844C:
             if constexpr (sizeof(T) != 16)
             {
                 bus->firewire.write(address, value);
