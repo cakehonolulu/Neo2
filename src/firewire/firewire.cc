@@ -33,25 +33,32 @@ void FireWire::write(uint32_t address, uint32_t value)
     std::string reg_name;
 
     switch (address & 0xFF) {
-        case ILinkMMIO::PHY_Access: {
-            ilink_regs.phy_reg.raw = value;
-            if (ilink_regs.phy_reg.rd && !ilink_regs.phy_reg.wr)
+        case i1934LLCCRegMap::PHY_Access: {
+            llc_core_regs.phy_access_reg.value = value;
+            if (llc_core_regs.phy_access_reg.rdphy && !llc_core_regs.phy_access_reg.wrphy)
             {
                 // Register read
                 Logger::error("Unimplemented FireWire PHY Access register read!");
                 Neo2::exit(1, Neo2::Subsystem::Firewire);
             }
-            else if (ilink_regs.phy_reg.wr && !ilink_regs.phy_reg.rd)
+            else if (llc_core_regs.phy_access_reg.wrphy && !llc_core_regs.phy_access_reg.rdphy)
             {
                 // Register write
-                switch (ilink_regs.phy_reg.rx_addr)
+                switch (llc_core_regs.phy_access_reg.rgadr)
                 {
+                    case 0x01:
+                        pl_core_regs.reg_01.value = llc_core_regs.phy_access_reg.rgdat;
+                        break;
+
                     default:
                         Logger::error("Unimplemented FireWire PHY Access register write to reg: " +
-                                      format("{:01X}", (std::uint8_t) ilink_regs.phy_reg.rx_addr));
+                                      format("{:01X}", (std::uint8_t)llc_core_regs.phy_access_reg.rgadr));
                         Neo2::exit(1, Neo2::Subsystem::Firewire);
                         break;
                 }
+
+                // WrPhy bit is cleared once request to PHY has been sent
+                llc_core_regs.phy_access_reg.wrphy = 0;
             }
             else
             {
