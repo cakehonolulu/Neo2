@@ -9,6 +9,8 @@
 #include <log/log_term.hh>
 #include <frontends/imgui/imgui_neo2.h>
 #include <cpu/breakpoint.hh>
+#include <cstring>
+#include <iomanip>
 
 #include "frontends/imgui/imgui_debug.hh"
 #include "imgui.h"
@@ -29,6 +31,33 @@
 
 SDL_GPUGraphicsPipeline *hw_pipeline = nullptr;
 SDL_GPUBuffer *hw_vertex_buffer = nullptr;
+
+struct romdir_entry {
+    char name[10]; // File name, must be null terminated
+    uint16_t ext_info_size; // Size of the file's extended info in EXTINFO
+    uint32_t file_size; // Size of the file itself
+};
+
+std::vector<romdir_entry> parse_bios(const std::vector<uint8_t>& bios_data) {
+    std::vector<romdir_entry> entries;
+    const char* reset_str = "RESET";
+    auto it = std::search(bios_data.begin(), bios_data.end(), reset_str, reset_str + std::strlen(reset_str));
+    if (it == bios_data.end()) {
+        return entries; // RESET not found
+    }
+
+    size_t offset = std::distance(bios_data.begin(), it);
+    while (offset < bios_data.size()) {
+        romdir_entry entry;
+        std::memcpy(&entry, &bios_data[offset], sizeof(romdir_entry));
+        if (entry.name[0] == '\0') {
+            break; // End of ROMDIR
+        }
+        entries.push_back(entry);
+        offset += sizeof(romdir_entry);
+    }
+    return entries;
+}
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -76,6 +105,9 @@ void ImGui_Neo2::run(int argc, char **argv)
 
     static bool show_framebuffer = false;
 
+    static bool show_bios_debug = false;
+    std::vector<romdir_entry> bios_entries;
+
     argparse::ArgumentParser program("Neo2");
 
     std::atomic<bool> is_running(false);
@@ -122,12 +154,18 @@ void ImGui_Neo2::run(int argc, char **argv)
     {
         std::string bios_path = program.get<std::string>("--bios");
         bus.load_bios(bios_path);
+
+        // Load BIOS data into a vector
+        std::ifstream bios_file(bios_path, std::ios::binary);
+        std::vector<uint8_t> bios_data((std::istreambuf_iterator<char>(bios_file)), std::istreambuf_iterator<char>());
+        bios_entries = parse_bios(bios_data);
     }
 
     if (program.is_used("--full-debug"))
     {
         show_ee_debug = true;
         show_iop_debug = true;
+        show_bios_debug = true;
     }
 
     if (program.is_used("--ee-debug"))
@@ -459,6 +497,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 ImGui::MenuItem("Show RAM View", nullptr, &show_ram_view);
                 ImGui::MenuItem("Show Textures", nullptr, &show_textures);
                 ImGui::MenuItem("Show Framebuffer", nullptr, &show_framebuffer);
+                ImGui::MenuItem("Show BIOS Debug", nullptr, &show_bios_debug);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -528,6 +567,33 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         if (show_textures) {
             //render_textures(bus.gs, zoom_factor);
+        }
+
+        if (show_bios_debug) {
+            ImGui::Begin("BIOS Debug");
+            ImGui::Text("BIOS File Structure");
+            ImGui::Separator();
+
+            if (ImGui::BeginTable("bios_table", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY)) {
+                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Extended Info Size", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                ImGui::TableSetupColumn("File Size", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableHeadersRow();
+
+                for (const auto& entry : bios_entries) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("%s", entry.name);
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%u", entry.ext_info_size);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%u", entry.file_size);
+                }
+
+                ImGui::EndTable();
+            }
+
+            ImGui::End();
         }
 
         // Handle the file dialog for loading BIOS
