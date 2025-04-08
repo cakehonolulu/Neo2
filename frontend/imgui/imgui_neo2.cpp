@@ -11,6 +11,8 @@
 #include <cpu/breakpoint.hh>
 #include <cstring>
 #include <iomanip>
+#include <sstream>
+#include <fstream>
 
 #include "frontends/imgui/imgui_debug.hh"
 #include "imgui.h"
@@ -28,36 +30,10 @@
 
 #include "scheduler.hh"
 #include "constants.hh"
+#include <bios/bios_utils.hh>
 
 SDL_GPUGraphicsPipeline *hw_pipeline = nullptr;
 SDL_GPUBuffer *hw_vertex_buffer = nullptr;
-
-struct romdir_entry {
-    char name[10]; // File name, must be null terminated
-    uint16_t ext_info_size; // Size of the file's extended info in EXTINFO
-    uint32_t file_size; // Size of the file itself
-};
-
-std::vector<romdir_entry> parse_bios(const std::vector<uint8_t>& bios_data) {
-    std::vector<romdir_entry> entries;
-    const char* reset_str = "RESET";
-    auto it = std::search(bios_data.begin(), bios_data.end(), reset_str, reset_str + std::strlen(reset_str));
-    if (it == bios_data.end()) {
-        return entries; // RESET not found
-    }
-
-    size_t offset = std::distance(bios_data.begin(), it);
-    while (offset < bios_data.size()) {
-        romdir_entry entry;
-        std::memcpy(&entry, &bios_data[offset], sizeof(romdir_entry));
-        if (entry.name[0] == '\0') {
-            break; // End of ROMDIR
-        }
-        entries.push_back(entry);
-        offset += sizeof(romdir_entry);
-    }
-    return entries;
-}
 
 ImGui_Neo2::ImGui_Neo2()
     : Neo2(std::make_shared<ImGuiLogBackend>())
@@ -106,7 +82,10 @@ void ImGui_Neo2::run(int argc, char **argv)
     static bool show_framebuffer = false;
 
     static bool show_bios_debug = false;
+    static bool show_iopbtconf_debug = false;
     std::vector<romdir_entry> bios_entries;
+    std::vector<IOPBTCONFEntry> iopbtconf_entries;
+    std::vector<IOPBTCONFEntry> iopbtcon2_entries; // Declare and initialize iopbtcon2_entries
 
     argparse::ArgumentParser program("Neo2");
 
@@ -149,7 +128,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         std::cerr << program;
         Neo2::exit(1, Neo2::Subsystem::Frontend);
     }
-
+    
     if (program.is_used("--bios"))
     {
         std::string bios_path = program.get<std::string>("--bios");
@@ -157,8 +136,36 @@ void ImGui_Neo2::run(int argc, char **argv)
 
         // Load BIOS data into a vector
         std::ifstream bios_file(bios_path, std::ios::binary);
+        if (!bios_file)
+        {
+            std::cerr << "Failed to open BIOS file: " << bios_path << std::endl;
+            return;
+        }
         std::vector<uint8_t> bios_data((std::istreambuf_iterator<char>(bios_file)), std::istreambuf_iterator<char>());
-        bios_entries = parse_bios(bios_data);
+
+        // Parse ROMDIR entries and calculate the starting offset.
+        size_t romdir_offset = 0;
+        bios_entries = parse_bios(bios_data, romdir_offset);
+        std::cout << "Found ROMDIR at offset: " << romdir_offset << std::endl;
+
+        std::cout << "Searching for IOPBTCONF:" << std::endl;
+        // Extract and parse IOPBTCONF and IOPBTCON2 data
+        std::vector<uint8_t> iopbtconf_data = extract_file_from_bios(bios_data, "IOPBTCONF");
+        if (!iopbtconf_data.empty())
+        {
+            std::vector<IOPBTCONFEntry> iopbtconf_entries_part = parse_iopbtconf(iopbtconf_data);
+            iopbtconf_entries.insert(iopbtconf_entries.end(), iopbtconf_entries_part.begin(),
+                                     iopbtconf_entries_part.end());
+        }
+
+        std::cout << "Searching for IOPBTCON2:" << std::endl;
+        std::vector<uint8_t> iopbtcon2_data = extract_file_from_bios(bios_data, "IOPBTCON2");
+        if (!iopbtcon2_data.empty())
+        {
+            std::vector<IOPBTCONFEntry> iopbtcon2_entries_part = parse_iopbtconf(iopbtcon2_data);
+            iopbtcon2_entries.insert(iopbtcon2_entries.end(), iopbtcon2_entries_part.begin(),
+                                     iopbtcon2_entries_part.end());
+        }
     }
 
     if (program.is_used("--full-debug"))
@@ -166,6 +173,7 @@ void ImGui_Neo2::run(int argc, char **argv)
         show_ee_debug = true;
         show_iop_debug = true;
         show_bios_debug = true;
+        show_iopbtconf_debug = true;
     }
 
     if (program.is_used("--ee-debug"))
@@ -498,6 +506,7 @@ void ImGui_Neo2::run(int argc, char **argv)
                 ImGui::MenuItem("Show Textures", nullptr, &show_textures);
                 ImGui::MenuItem("Show Framebuffer", nullptr, &show_framebuffer);
                 ImGui::MenuItem("Show BIOS Debug", nullptr, &show_bios_debug);
+                ImGui::MenuItem("Show IOPBTCONF Debug", nullptr, &show_iopbtconf_debug);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Backend")) {
@@ -593,6 +602,106 @@ void ImGui_Neo2::run(int argc, char **argv)
                 ImGui::EndTable();
             }
 
+            ImGui::End();
+        }
+
+        if (show_iopbtconf_debug)
+        {
+            ImGui::Begin("IOPBTCONF Debug");
+            if (ImGui::BeginTabBar("IOPBTCONF Tabs"))
+            {
+                if (ImGui::BeginTabItem("IOPBTCONF"))
+                {
+                    ImGui::Text("IOPBTCONF File Structure");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("iopbtconf_table", 3,
+                                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
+                                              ImGuiTableFlags_ScrollY))
+                    {
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 300.0f);
+                        ImGui::TableSetupColumn("Memory Address", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableHeadersRow();
+
+                        uint32_t current_address = 0;
+                        for (const auto &entry : iopbtconf_entries)
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%s", entry.type.c_str());
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%s", entry.value.c_str());
+                            ImGui::TableSetColumnIndex(2);
+                            if (entry.type == "Start Address")
+                            {
+                                current_address = std::stoul(entry.value, nullptr, 16);
+                                ImGui::Text("0x%08X", current_address);
+                            }
+                            else if (entry.type == "Module")
+                            {
+                                ImGui::Text("0x%08X", current_address);
+                                current_address += 256; // Move to the next 256-byte boundary
+                            }
+                            else
+                            {
+                                ImGui::Text("-");
+                            }
+                        }
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("IOPBTCON2"))
+                {
+                    ImGui::Text("IOPBTCON2 File Structure");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("iopbtcon2_table", 3,
+                                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
+                                              ImGuiTableFlags_ScrollY))
+                    {
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 300.0f);
+                        ImGui::TableSetupColumn("Memory Address", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableHeadersRow();
+
+                        uint32_t current_address = 0;
+                        for (const auto &entry : iopbtcon2_entries)
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%s", entry.type.c_str());
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%s", entry.value.c_str());
+                            ImGui::TableSetColumnIndex(2);
+                            if (entry.type == "Start Address")
+                            {
+                                current_address = std::stoul(entry.value, nullptr, 16);
+                                ImGui::Text("0x%08X", current_address);
+                            }
+                            else if (entry.type == "Module")
+                            {
+                                ImGui::Text("0x%08X", current_address);
+                                current_address += 256; // Move to the next 256-byte boundary
+                            }
+                            else
+                            {
+                                ImGui::Text("-");
+                            }
+                        }
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
             ImGui::End();
         }
 

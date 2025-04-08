@@ -1,6 +1,7 @@
 target_sources(neo2
         PRIVATE
         neo2.cc
+        bios/bios_utils.cc
         bus/bus.cc
         bus/bus_fmem.cc
         bus/rdram.cc
